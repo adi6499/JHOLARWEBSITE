@@ -27,10 +27,68 @@ function sendJson(res, code, obj) {
   res.end(JSON.stringify(obj));
 }
 
-// The Google Drive files this dashboard shows (edit sources.json to change them).
+// The Google Drive files this dashboard shows.
+// - On a PC: sources.json (git-ignored).
+// - On hosting (Vercel): the SOURCES environment variable, e.g.
+//   [{"id":"<drive file id>","name":"Shell Order Tracker"}] — kept in the host's private settings.
+function parseSources(text) {
+  try {
+    const v = JSON.parse(text);
+    return Array.isArray(v) ? v.filter((s) => s && /^[A-Za-z0-9_-]{20,100}$/.test(s.id)) : [];
+  } catch (e) {
+    // Also accept a plain list of links / ids separated by commas or new lines.
+    return String(text).split(/[\s,]+/).map((t) => (t.match(/\/d\/([A-Za-z0-9_-]{20,100})/) || t.match(/^([A-Za-z0-9_-]{20,100})$/) || [])[1])
+      .filter(Boolean).map((id) => ({ id, name: 'Google sheet' }));
+  }
+}
+function sourcesFromFile() {
+  try { return parseSources(fs.readFileSync(path.join(__dirname, 'sources.json'), 'utf8')); } catch (e) { return []; }
+}
 function loadSources() {
-  try { return JSON.parse(fs.readFileSync(path.join(__dirname, 'sources.json'), 'utf8')); }
-  catch (e) { return []; }
+  return process.env.SOURCES ? parseSources(process.env.SOURCES) : sourcesFromFile();
+}
+
+// ---------- password for shared Google sheets on a public website ----------
+// Google-sheet data is only given out when either:
+//  - it comes from sources.json on this PC and no password is set (the PC app), or
+//  - APP_PASSWORD is set and the browser has unlocked it (the website).
+// SOURCES without APP_PASSWORD is never served: that would publish the data to anyone.
+const crypto = require('crypto');
+const APP_PASSWORD = process.env.APP_PASSWORD || '';
+const authToken = () => crypto.createHash('sha256').update('sheets-insight:' + APP_PASSWORD).digest('hex');
+function hasAuthCookie(req) {
+  const m = (req.headers.cookie || '').match(/(?:^|;\s*)sd_auth=([a-f0-9]{64})/);
+  return !!m && crypto.timingSafeEqual(Buffer.from(m[1]), Buffer.from(authToken()));
+}
+function driveAllowed(req) {
+  if (APP_PASSWORD) return hasAuthCookie(req);
+  return !process.env.SOURCES; // PC app with a local sources.json
+}
+function handleLogin(req, res) {
+  if (!fromApp(req)) return sendJson(res, 403, { error: 'Not allowed.' });
+  if (!APP_PASSWORD) return sendJson(res, 400, { error: 'No password is set up for this site.' });
+  let body = '';
+  req.on('data', (c) => { body += c; if (body.length > 2000) req.destroy(); });
+  req.on('end', () => {
+    let pw = '';
+    try { pw = String(JSON.parse(body).password || ''); } catch (e) { /* ignore */ }
+    const a = crypto.createHash('sha256').update(pw).digest();
+    const b = crypto.createHash('sha256').update(APP_PASSWORD).digest();
+    if (!crypto.timingSafeEqual(a, b)) {
+      return setTimeout(() => sendJson(res, 401, { error: 'Wrong password.' }), 800); // slow down guessing
+    }
+    const secure = (req.headers['x-forwarded-proto'] || '').includes('https') ? '; Secure' : '';
+    res.writeHead(200, {
+      'Content-Type': 'application/json', 'Cache-Control': 'no-store',
+      'Set-Cookie': `sd_auth=${authToken()}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${30 * 86400}${secure}`,
+    });
+    res.end(JSON.stringify({ ok: true }));
+  });
+}
+function handleLogout(req, res) {
+  if (!fromApp(req)) return sendJson(res, 403, { error: 'Not allowed.' });
+  res.writeHead(200, { 'Content-Type': 'application/json', 'Set-Cookie': 'sd_auth=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0' });
+  res.end('{"ok":true}');
 }
 
 // Excel files placed in the data folder are shown too. Replace a file there to update it.
@@ -44,9 +102,12 @@ function localFiles() {
       .sort((a, b) => a.name.localeCompare(b.name));
   } catch (e) { return []; }
 }
-function allSources() {
-  return [...localFiles(), ...loadSources().map((s) => ({ ...s, kind: 'drive' }))];
+function allSources(req) {
+  const drive = driveAllowed(req) ? loadSources().map((s) => ({ id: s.id, name: s.name || 'Google sheet', kind: 'drive' })) : [];
+  return [...localFiles(), ...drive];
 }
+// How many shared sheets are waiting behind the password (0 = none / already unlocked).
+const lockedCount = (req) => (APP_PASSWORD && !hasAuthCookie(req) ? loadSources().length : 0);
 
 function handleLocal(req, res, url) {
   const name = url.searchParams.get('file') || '';
@@ -79,7 +140,8 @@ async function fetchDrive(id) {
 
 async function handleDrive(req, res, url) {
   const id = url.searchParams.get('id') || '';
-  // Only the files listed in sources.json can be fetched.
+  // Only listed files, and only for a browser that is allowed to see them.
+  if (!driveAllowed(req)) return sendJson(res, 401, { error: 'Enter the password to load the shared Google sheets.' });
   if (!loadSources().some((s) => s.id === id)) return sendJson(res, 400, { error: 'Unknown file.' });
   try {
     const got = await fetchDrive(id);
@@ -163,6 +225,7 @@ function handleRemove(req, res, url) {
       return sendJson(res, 200, { ok: true });
     } catch (e) { return sendJson(res, 500, { error: 'Could not remove the file. If it is open in Excel, close it and try again.' }); }
   }
+  if (process.env.SOURCES) return sendJson(res, 400, { error: 'This sheet is set up in the website settings (Vercel → Environment Variables → SOURCES). Remove it there.' });
   const list = loadSources();
   if (!list.some((s) => s.id === id)) return sendJson(res, 404, { error: 'Link not found.' });
   saveSources(list.filter((s) => s.id !== id));
@@ -193,11 +256,20 @@ http.createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost');
   if (req.method === 'POST' && url.pathname === '/api/upload') return handleUpload(req, res, url);
   if (req.method === 'POST' && url.pathname === '/api/remove') return handleRemove(req, res, url);
+  if (req.method === 'POST' && url.pathname === '/api/login') return handleLogin(req, res);
+  if (req.method === 'POST' && url.pathname === '/api/logout') return handleLogout(req, res);
   if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405); return res.end(); }
   if (url.pathname === '/api/drive') return handleDrive(req, res, url);
   if (url.pathname === '/api/local') return handleLocal(req, res, url);
-  if (url.pathname === '/api/sources') return sendJson(res, 200, allSources());
-  if (url.pathname === '/api/info') return sendJson(res, 200, { canSave: checkCanSave() });
+  if (url.pathname === '/api/sources') return sendJson(res, 200, allSources(req));
+  if (url.pathname === '/api/info') {
+    return sendJson(res, 200, {
+      canSave: checkCanSave(),
+      locked: lockedCount(req),                    // shared sheets waiting for the password
+      unlocked: !!APP_PASSWORD && hasAuthCookie(req),
+      misconfigured: !!process.env.SOURCES && !APP_PASSWORD, // SOURCES set but no password: not served
+    });
+  }
 
   let rel = decodeURIComponent(url.pathname);
   if (rel === '/') rel = '/index.html';

@@ -28,7 +28,53 @@
     locate: null,       // row number to scroll to in the table
     lastSync: null,
     canSave: true,      // false on read-only hosting (e.g. Vercel): uploads stay in this browser
+    locked: 0,          // shared Google sheets waiting behind the website password
+    unlocked: false,
+    misconfigured: false,
   };
+  async function loadInfo() {
+    try {
+      const r = await fetch('/api/info');
+      if (!r.ok) return;
+      const j = await r.json();
+      state.canSave = j.canSave !== false;
+      state.locked = Number(j.locked) || 0;
+      state.unlocked = !!j.unlocked;
+      state.misconfigured = !!j.misconfigured;
+    } catch (e) { /* keep defaults */ }
+  }
+  async function unlock(password) {
+    const btn = $('#unlockBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Checking…'; }
+    try {
+      const r = await fetch('/api/login', { method: 'POST', headers: { 'X-App': 'sheets-dashboard', 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { toast(j.error || 'Could not unlock.'); return; }
+      await loadInfo();
+      await syncAll();
+      toast('Unlocked — shared Google sheets are loading');
+    } catch (e) { toast('Could not unlock.'); }
+    finally { const b = $('#unlockBtn'); if (b) { b.disabled = false; b.textContent = 'Unlock'; } }
+  }
+  async function lockAgain() {
+    await fetch('/api/logout', { method: 'POST', headers: { 'X-App': 'sheets-dashboard' } }).catch(() => {});
+    state.files = state.files.filter((f) => !state.sources.some((s) => s.id === f.id && s.kind === 'drive'));
+    for (const s of state.sources) if (s.kind === 'drive') store.del(s.id);
+    await loadInfo();
+    await syncAll();
+    toast('Locked — shared sheets are hidden on this browser');
+  }
+  function lockCardHtml() {
+    if (state.misconfigured) return `<div class="notice">${I('triangle-alert', 'sm')}<span>Shared Google sheets are set up on this website but no password is set, so they are hidden. Add <b>APP_PASSWORD</b> in the website settings.</span></div>`;
+    if (!state.locked) return '';
+    return `<form class="card lock-card" id="unlockForm">
+      <span class="card-icon">${I('cloud')}</span>
+      <div class="grow"><div class="fname">${plural(state.locked, 'shared Google sheet')} protected by a password</div>
+        <div class="fmeta">Enter the password once — this browser remembers it for 30 days.</div></div>
+      <input type="password" id="unlockPw" class="input" placeholder="Password" autocomplete="current-password" aria-label="Password" required>
+      <button class="btn primary" id="unlockBtn" type="submit">Unlock</button>
+    </form>`;
+  }
   let charts = [];
   let syncing = false;
 
@@ -467,11 +513,12 @@
         <div class="grow"><div class="fname">${esc(f ? f.name : src.name)}</div><div class="fmeta">${esc(meta)}</div></div>
         <div class="acts">
           ${isLocal ? `<button class="btn small" data-replace="${esc(src.kind === 'device' ? src.id : src.file)}" type="button" title="Upload a newer copy of this file">${I('replace', 'sm')}Replace</button>` : ''}
-          <button class="btn small" data-remove="${esc(src.id)}" type="button" title="Take this file off the dashboard">${I('trash-2', 'sm')}Remove</button>
+          ${src.kind === 'drive' && !state.canSave ? '' : `<button class="btn small" data-remove="${esc(src.id)}" type="button" title="Take this file off the dashboard">${I('trash-2', 'sm')}Remove</button>`}
         </div>
       </div>`;
     }).join('');
-    $('#startList').innerHTML = state.sources.length ? `<div class="list-head">Files in the dashboard (${state.sources.length})</div>${rows}` : '';
+    $('#startList').innerHTML = lockCardHtml() + (state.sources.length ? `<div class="list-head">Files in the dashboard (${state.sources.length})</div>${rows}` : '')
+      + (state.unlocked ? `<div class="note"><button class="link-btn" data-lock type="button">${I('x', 'sm')}Lock shared sheets on this browser</button></div>` : '');
     $('#startNote').textContent = state.canSave
       ? 'Files stay on this computer. A file with the same name — even “Sales Tracker (1).xlsx” — replaces the older copy. The original Google Sheet is never changed.'
       : 'Private: files are read and kept in this browser on this computer only — they are never uploaded to any server. A file with the same name replaces the older copy. Use the same browser next time to see them again.';
@@ -571,6 +618,7 @@
       .slice(0, 6);
 
     let html = bad.map((s) => `<div class="notice">${I('triangle-alert', 'sm')}<span><b>${esc(s.name)}</b> could not be opened: ${esc(s.error)}</span></div>`).join('');
+    if (state.locked) html += `<div class="change-banner" style="margin:0 0 16px">${I('cloud', 'sm')}<span style="flex:1">${plural(state.locked, 'shared Google sheet')} (like the Shell Order Tracker) ${state.locked === 1 ? 'is' : 'are'} protected by a password.</span><button class="btn small" data-upload type="button">Unlock</button></div>`;
     html += `
       <div class="grid kpis">
         <div class="card kpi">
@@ -1325,9 +1373,16 @@
     $('#folderInput').addEventListener('change', (e) => { uploadFiles(e.target.files); e.target.value = ''; });
     let replaceTarget = null;
     $('#replaceInput').addEventListener('change', (e) => { if (e.target.files.length) uploadFiles(e.target.files, replaceTarget); e.target.value = ''; });
+    $('#startList').addEventListener('submit', (e) => {
+      if (e.target.id !== 'unlockForm') return;
+      e.preventDefault();
+      const pw = $('#unlockPw').value;
+      if (pw) unlock(pw);
+    });
     $('#startList').addEventListener('click', (e) => {
       const b = e.target.closest('button');
       if (!b) return;
+      if (b.dataset.lock !== undefined) return lockAgain();
       if (b.dataset.replace) { replaceTarget = b.dataset.replace; $('#replaceInput').click(); return; }
       if (b.dataset.remove) { const src = state.sources.find((s) => s.id === b.dataset.remove); if (src) removeSource(src); }
     });
@@ -1456,7 +1511,7 @@
   async function init() {
     const t = pref('sd-theme', null); if (t) document.documentElement.dataset.theme = t;
     wire();
-    try { const r = await fetch('/api/info'); if (r.ok) state.canSave = (await r.json()).canSave !== false; } catch (e) { /* keep default */ }
+    await loadInfo();
     await loadSourceList();
     render();
     // Show the last copy instantly (works offline), then get fresh data.

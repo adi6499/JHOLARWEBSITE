@@ -19,11 +19,17 @@ Double-click **Start Dashboard.bat** — it opens http://localhost:5180 and fetc
 3. Pick a tab → **Dashboard**, **What's wrong** (row numbers match the sheet), **Data**.
 4. Optional: paste a Drive link (only works if the file is shared "Anyone with the link → Viewer"); ↻ re-downloads it.
 
+## Screens
+- **Upload** — drag & drop, choose files, choose folder; Replace / Remove per file.
+- **Overview** — data health, critical issues, warnings, spreadsheet count; "Needs attention" list; next-step fix list; one tile per tab.
+- **Per tab** — Summary (KPIs + charts, or Target vs Achieved), Problems (Critical / Warnings / Suggestions, each with what · where · why · what to do), Rows (Cards ⇄ Table, shared search + filters, "View in table" locates the row).
+- **Global search** (press /) — tabs and rows across every file.
+
 ## Files
 - `server.js` — local server, 127.0.0.1 only
 - `public/analyze.js` — header detection, column types, all data checks (pure, testable in Node)
 - `public/app.js` — screens and charts
-- `public/vendor/` — SheetJS + Chart.js copied by `npm install` (offline)
+- `public/vendor/` — SheetJS, Chart.js and the Lucide icons used (icons.js), built by `npm install` / `node scripts/copy-vendor.js` (offline)
 
 ## Next step
 Wrap as a Windows app (.exe) with Electron.

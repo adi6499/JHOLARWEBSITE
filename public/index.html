@@ -3,84 +3,112 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Sheets Dashboard</title>
+  <title>Sheets Insight</title>
   <link rel="stylesheet" href="app.css">
 </head>
 <body>
-  <aside class="side">
+  <div class="scrim" id="scrim" hidden></div>
+
+  <!-- Sidebar -->
+  <aside class="side" id="side" aria-label="Main menu">
     <div class="brand">
-      <button class="nav-toggle" id="navToggle" type="button" title="Hide / show the menu" aria-label="Hide or show the menu">☰</button>
+      <div class="brand-mark" aria-hidden="true">S</div>
       <div class="brand-text">
-        <div class="brand-name">Sheets Dashboard</div>
+        <div class="brand-name">Sheets Insight</div>
         <div class="brand-sub">View only · nothing is changed</div>
       </div>
+      <button class="side-collapse" id="navToggle" type="button" title="Collapse menu" aria-label="Collapse menu"></button>
     </div>
 
     <nav class="nav" id="nav"></nav>
 
+    <div class="side-card" id="sideCard" hidden></div>
+
     <div class="side-foot">
-      <div class="updated" id="syncStatus">Loading…</div>
-      <div class="foot-row">
-        <button class="btn primary" id="refreshBtn" type="button" title="Get the latest data now">↻ Refresh</button>
-        <button class="btn icon" id="themeBtn" type="button" title="Light / dark">◐</button>
-      </div>
+      <button class="nav-item" id="themeBtn" type="button" title="Switch light / dark" aria-label="Switch light or dark theme">
+        <span class="nav-ic" id="themeIcon"></span><span class="label" id="themeLabel">Dark mode</span>
+      </button>
     </div>
   </aside>
 
-  <main class="main" id="main">
-    <header class="top" id="top">
-      <div>
-        <button class="back" id="backBtn" type="button" hidden>← Home</button>
-        <h1 id="title">Overview</h1>
-        <div class="subtitle" id="subtitle"></div>
+  <!-- Main canvas -->
+  <div class="canvas">
+    <header class="topbar">
+      <button class="icon-btn mobile-only" id="menuBtn" type="button" title="Open menu" aria-label="Open menu"></button>
+      <div class="gsearch" role="search">
+        <span class="gsearch-ic" id="gsearchIc"></span>
+        <input id="gsearch" type="search" placeholder="Search tabs, customers, products, row numbers…" autocomplete="off" aria-label="Search all spreadsheets" aria-controls="gresults">
+        <div class="gresults" id="gresults" role="listbox" hidden></div>
       </div>
-      <div class="seg" id="tabs" hidden>
-        <button data-view="dashboard" type="button">Summary</button>
-        <button data-view="health" type="button">Problems <span class="count" id="issueCount"></span></button>
-        <button data-view="data" type="button">Table</button>
+      <div class="sync">
+        <span class="sync-text" id="syncStatus" aria-live="polite">Loading…</span>
+        <button class="btn" id="refreshBtn" type="button" title="Get the latest data now"></button>
       </div>
     </header>
 
-    <section id="view-start" class="view">
-      <div class="start">
-        <div class="drop" id="drop">
-          <div class="drop-icon">⤒</div>
-          <div class="drop-title">Drag your Excel files here</div>
-          <div class="drop-sub">You can drop many files at once — or pick one of the options below</div>
+    <main class="main" id="main">
+      <div class="page-head" id="pageHead">
+        <div class="page-titles">
+          <button class="back" id="backBtn" type="button" hidden></button>
+          <h1 id="title">Overview</h1>
+          <p class="subtitle" id="subtitle"></p>
         </div>
-
-        <div class="options">
-          <label class="card option">
-            <input type="file" id="fileInput" accept=".xlsx,.xls,.xlsm,.csv" multiple hidden>
-            <div class="opt-icon">📄</div>
-            <div class="opt-title">Choose files</div>
-            <div class="opt-sub">Pick one or many — hold <b>Ctrl</b> to select several</div>
-          </label>
-          <label class="card option">
-            <input type="file" id="folderInput" webkitdirectory multiple hidden>
-            <div class="opt-icon">📁</div>
-            <div class="opt-title">Choose a folder</div>
-            <div class="opt-sub">Adds every Excel file inside the folder</div>
-          </label>
+        <div class="seg" id="tabs" role="tablist" hidden>
+          <button data-view="dashboard" type="button" role="tab"></button>
+          <button data-view="health" type="button" role="tab"></button>
+          <button data-view="data" type="button" role="tab"></button>
         </div>
-        <input type="file" id="replaceInput" accept=".xlsx,.xls,.xlsm,.csv" hidden>
-        <div class="drop-hint">How to get the Excel file from Google Sheets: <b>File → Download → Microsoft Excel (.xlsx)</b></div>
-        <div class="start-list" id="startList"></div>
-        <div class="start-actions">
-          <button class="btn primary big-btn" id="openDash" type="button">Open dashboard →</button>
-        </div>
-        <p class="muted small-note">🔒 Files stay on this computer. Uploading a file with the same name (even “Sales Tracker (1).xlsx”) replaces the older copy. The original Google Sheet is never changed.</p>
       </div>
-    </section>
-    <section id="view-home" class="view" hidden></section>
-    <div class="filters" id="filters" hidden></div>
-    <section id="view-dashboard" class="view" hidden></section>
-    <section id="view-health" class="view" hidden></section>
-    <section id="view-data" class="view" hidden></section>
-  </main>
 
-  <div id="toast" class="toast" hidden></div>
+      <!-- Upload -->
+      <section id="view-start" class="view">
+        <div class="start">
+          <div class="drop card" id="drop">
+            <div class="drop-icon" id="dropIcon"></div>
+            <div class="drop-title">Drag your Excel files here</div>
+            <div class="muted">You can drop many files at once, or choose below.</div>
+            <div class="drop-actions">
+              <label class="btn primary">
+                <input type="file" id="fileInput" accept=".xlsx,.xls,.xlsm,.csv" multiple hidden>
+                <span id="chooseFilesLbl"></span>
+              </label>
+              <label class="btn">
+                <input type="file" id="folderInput" webkitdirectory multiple hidden>
+                <span id="chooseFolderLbl"></span>
+              </label>
+            </div>
+            <div class="drop-hint">From Google Sheets: <b>File → Download → Microsoft Excel (.xlsx)</b></div>
+          </div>
+          <input type="file" id="replaceInput" accept=".xlsx,.xls,.xlsm,.csv" hidden>
+          <div id="startList"></div>
+          <div class="start-actions">
+            <button class="btn primary big" id="openDash" type="button"></button>
+          </div>
+          <p class="note">Files stay on this computer. A file with the same name — even “Sales Tracker (1).xlsx” — replaces the older copy. The original Google Sheet is never changed.</p>
+        </div>
+      </section>
 
+      <section id="view-home" class="view" hidden></section>
+      <div class="filters" id="filters" hidden></div>
+      <section id="view-dashboard" class="view" hidden></section>
+      <section id="view-health" class="view" hidden></section>
+      <section id="view-data" class="view" hidden></section>
+    </main>
+  </div>
+
+  <!-- Row details drawer -->
+  <aside class="drawer" id="drawer" aria-label="Row details" aria-hidden="true">
+    <div class="drawer-head">
+      <div><div class="drawer-kicker" id="drawerKicker"></div><h2 id="drawerTitle"></h2></div>
+      <button class="icon-btn" id="drawerClose" type="button" title="Close" aria-label="Close details"></button>
+    </div>
+    <div class="drawer-body" id="drawerBody"></div>
+    <div class="drawer-foot" id="drawerFoot"></div>
+  </aside>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+
+  <script src="vendor/icons.js"></script>
   <script src="vendor/xlsx.full.min.js"></script>
   <script src="vendor/chart.umd.js"></script>
   <script src="analyze.js"></script>

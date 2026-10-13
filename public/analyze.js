@@ -103,7 +103,7 @@
     h = h.toLowerCase().replace(/_/g, ' ');
     if (/description|remark|comment|note/.test(h)) return /description/.test(h) ? 'product' : null;
     if (/(price|rate)/.test(h) && !/total/.test(h)) return 'price';
-    if (/customer|client|party|buyer/.test(h)) return 'customer';
+    if (/customer|client|party|buyer|dealer/.test(h) && !/city|district|state|gst|code|zone|location|place/.test(h)) return 'customer';
     if (/\bdsr\b|sales ?(person|man)|executive|assigned|owner/.test(h)) return 'person';
     if (/status|stage/.test(h)) return 'status';
     if (/date|\bdt\b/.test(h)) return 'date';
@@ -457,7 +457,24 @@
       [/^Line breaks/, 'Optional: edit the cell and keep everything on one line.'],
       [/^Headings repeated/, 'Keep one table per tab — move each extra table to its own tab.'],
     ];
-    issues.forEach((it) => { const f = FIXES.find(([re]) => re.test(it.title)); it.fix = f ? f[1] : ''; });
+    // Why each kind of problem matters, in plain words.
+    const WHY = [
+      [/^Text in a number column/, 'Totals and charts skip these cells, so sums come out too low.'],
+      [/^Negative values/, 'A wrong minus sign reduces totals instead of adding to them.'],
+      [/^Unreadable dates/, 'These rows drop out of monthly charts and date-based reports.'],
+      [/^Suspicious dates/, 'The row is counted in the wrong month or year.'],
+      [/^Missing/, 'Rows without this value cannot be grouped or totalled correctly.'],
+      [/^Same name spelled/, 'One customer or person appears as several names, so their totals are split.'],
+      [/doesn't match/, 'One of the numbers in the row is wrong, so reported values may be off.'],
+      [/^Duplicate rows/, 'The same entry is counted twice, which inflates totals.'],
+      [/^Extra spaces/, 'Can stop lookups (like VLOOKUP) and matching from working.'],
+      [/^Line breaks/, 'Part of the value can be hidden inside the cell.'],
+      [/^Headings repeated/, 'When the layout changes partway down, columns can be read in the wrong place.'],
+    ];
+    issues.forEach((it) => {
+      const f = FIXES.find(([re]) => re.test(it.title)); it.fix = f ? f[1] : '';
+      const w = WHY.find(([re]) => re.test(it.title)); it.why = w ? w[1] : '';
+    });
 
     const order = { err: 0, warn: 1, info: 2 };
     issues.sort((a, b) => order[a.sev] - order[b.sev] || b.cells.length - a.cells.length);

@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "chart.js": "^4.4.7",
+    "lucide-static": "^0.460.0",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   }
 }

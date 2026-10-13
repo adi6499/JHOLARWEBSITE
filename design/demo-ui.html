@@ -1,0 +1,470 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sheets Dashboard — UI Demo</title>
+<!--
+  UI DEMO for design review. Static, self-contained, sample data only (no real names/numbers).
+  Open by double-clicking. Use the dark bar at the top to switch screens, theme and menu.
+-->
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #fff; --soft: #f1f3f6; --line: #e4e7ec; --text: #1a1d23; --muted: #6b7280;
+  --accent: #2f6fde; --accent-soft: #eaf1fd; --red: #d64545; --red-soft: #fdeeee; --amber: #b97813; --amber-soft: #fdf4e3;
+  --green: #1d9a63; --green-soft: #e5f6ee; --grey-soft: #f0f2f5; --c2: #16a394; --c3: #e08a2e; --c4: #8a5cd6;
+  --shadow: 0 1px 2px rgba(16,24,40,.04), 0 2px 8px rgba(16,24,40,.04); --r: 14px; color-scheme: light;
+}
+:root[data-theme="dark"] {
+  --bg: #0f1115; --panel: #171a20; --soft: #1e222a; --line: #2a2f38; --text: #eceef2; --muted: #9aa1ad;
+  --accent: #6b9bf2; --accent-soft: #1c2a45; --red: #f07272; --red-soft: #3a1e20; --amber: #e6b04e; --amber-soft: #3a2f17;
+  --green: #41c58f; --green-soft: #16332a; --grey-soft: #22262e; --c2: #3cc1a8; --c3: #e6b04e; --c4: #a98af0;
+  --shadow: none; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; margin: 0; }
+body { display: flex; flex-direction: column; background: var(--bg); color: var(--text); font: 15px/1.5 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; }
+button, input, select { font: inherit; color: inherit; }
+.muted { color: var(--muted); }
+
+/* demo switcher (not part of the app) */
+.demo-bar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; padding: 8px 14px; background: #111827; color: #e5e7eb; font-size: 13px; }
+.demo-bar b { margin-right: 6px; color: #fff; }
+.demo-bar button { border: 1px solid #374151; background: #1f2937; color: #e5e7eb; padding: 4px 10px; border-radius: 7px; cursor: pointer; }
+.demo-bar button.on { background: #2f6fde; border-color: #2f6fde; color: #fff; }
+.demo-bar .sp { flex: 1; }
+.app { flex: 1; display: flex; min-height: 0; }
+
+/* sidebar */
+.side { width: 272px; flex: 0 0 272px; display: flex; flex-direction: column; background: var(--panel); border-right: 1px solid var(--line); transition: width .18s, flex-basis .18s; overflow: hidden; }
+.brand { display: flex; gap: 12px; align-items: center; padding: 20px 18px 14px; }
+.nav-toggle { width: 38px; height: 38px; flex: 0 0 38px; border-radius: 11px; border: 0; cursor: pointer; display: grid; place-items: center; background: var(--accent); color: #fff; font-size: 19px; }
+.brand-text { white-space: nowrap; }
+.brand-name { font-weight: 700; font-size: 16px; }
+.brand-sub { color: var(--muted); font-size: 12.5px; }
+.nav { flex: 1; overflow-y: auto; padding: 4px 10px 12px; }
+.nav-item { width: 100%; display: flex; align-items: center; gap: 10px; border: 0; background: transparent; cursor: pointer; text-align: left; padding: 8px 10px; border-radius: 9px; font-size: 14px; color: var(--text); white-space: nowrap; }
+.nav-item:hover { background: var(--soft); }
+.nav-item.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.nav-item .label { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.nav-file { margin-top: 6px; font-weight: 600; font-size: 13.5px; }
+.nav-file .chev { color: var(--muted); font-size: 11px; display: inline-block; transition: transform .15s; }
+.nav-file.open .chev { transform: rotate(90deg); }
+.nav-tabs { padding-left: 18px; }
+.nav-tabs .nav-item { font-size: 13.5px; padding: 6px 10px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; background: var(--green); display: inline-block; }
+.dot.red { background: var(--red); } .dot.amber { background: var(--amber); }
+.side-foot { border-top: 1px solid var(--line); padding: 12px 14px 16px; }
+.updated { font-size: 12.5px; color: var(--muted); margin-bottom: 8px; }
+.foot-row { display: flex; gap: 8px; }
+.foot-row .primary { flex: 1; }
+body.nav-collapsed .side { width: 70px; flex-basis: 70px; }
+body.nav-collapsed .brand { padding: 20px 16px 14px; }
+body.nav-collapsed .brand-text, body.nav-collapsed .nav .label, body.nav-collapsed .nav-file, body.nav-collapsed .nav-tabs, body.nav-collapsed .updated { display: none; }
+body.nav-collapsed .nav-item { justify-content: center; padding: 10px 0; font-size: 18px; }
+body.nav-collapsed .foot-row { flex-direction: column; }
+body.nav-collapsed .refresh { font-size: 0; padding: 8px 0; }
+body.nav-collapsed .refresh::before { content: '↻'; font-size: 17px; }
+body.nav-collapsed .btn.icon { width: 100%; }
+body.nav-collapsed .side-foot { padding: 12px 10px 16px; }
+
+/* buttons, chips */
+.btn { border: 1px solid var(--line); background: var(--panel); cursor: pointer; padding: 8px 14px; border-radius: 10px; font-weight: 600; font-size: 14px; }
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.icon { width: 40px; padding: 8px 0; }
+.btn.small { padding: 6px 12px; font-size: 13px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; padding: 3px 10px; border-radius: 99px; }
+.chip.green { background: var(--green-soft); color: var(--green); } .chip.red { background: var(--red-soft); color: var(--red); } .chip.amber { background: var(--amber-soft); color: var(--amber); }
+.up { color: var(--green); font-weight: 600; } .down { color: var(--red); font-weight: 600; }
+
+/* main */
+.main { flex: 1; min-width: 0; overflow-y: auto; padding: 26px 34px 48px; }
+.top { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+.back { border: 0; background: none; color: var(--muted); cursor: pointer; padding: 0; margin-bottom: 4px; font-size: 13.5px; }
+h1 { margin: 0; font-size: 26px; font-weight: 700; letter-spacing: -.015em; }
+.subtitle { color: var(--muted); font-size: 14px; margin-top: 2px; }
+.seg { display: flex; background: var(--soft); padding: 4px; border-radius: 12px; gap: 2px; }
+.seg button { border: 0; background: transparent; padding: 8px 18px; border-radius: 9px; cursor: pointer; font-weight: 600; color: var(--muted); display: flex; gap: 8px; align-items: center; }
+.seg button.active { background: var(--panel); color: var(--text); box-shadow: var(--shadow); }
+.count { font-size: 12px; min-width: 22px; padding: 0 7px; line-height: 20px; border-radius: 99px; background: var(--red-soft); color: var(--red); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 18px 20px; box-shadow: var(--shadow); min-width: 0; }
+.grid { display: grid; gap: 16px; }
+.section-title { font-size: 13px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); margin: 26px 0 4px; }
+.progress-line { font-size: 13.5px; color: var(--muted); margin-bottom: 12px; }
+
+/* upload */
+.start { max-width: 720px; margin: 0 auto; }
+.drop { text-align: center; border: 2px dashed var(--line); border-radius: 20px; background: var(--panel); padding: 32px 24px; }
+.drop:hover { border-color: var(--accent); background: var(--accent-soft); }
+.drop-icon { width: 64px; height: 64px; margin: 0 auto 14px; border-radius: 50%; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); font-size: 30px; }
+.drop-title { font-size: 20px; font-weight: 700; }
+.options { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px; }
+.option { cursor: pointer; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.option:hover { border-color: var(--accent); }
+.opt-icon { font-size: 26px; } .opt-title { font-weight: 700; } .opt-sub { color: var(--muted); font-size: 12.5px; }
+.hint { text-align: center; color: var(--muted); font-size: 13.5px; margin-top: 16px; }
+.list-title { font-size: 13px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); margin: 22px 0 10px; }
+.file-row { display: flex; align-items: center; gap: 14px; padding: 12px 16px; margin-bottom: 8px; }
+.file-row .grow { flex: 1; min-width: 0; }
+.fname { font-weight: 600; } .fmeta { color: var(--muted); font-size: 13px; }
+.center { display: flex; justify-content: center; margin-top: 22px; }
+.big-btn { padding: 13px 34px; font-size: 16px; border-radius: 12px; }
+
+/* home */
+.strip { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin-bottom: 10px; }
+.big { font-size: 28px; font-weight: 700; }
+.lbl { color: var(--muted); font-size: 13.5px; }
+.tiles { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
+.tile { cursor: pointer; text-align: left; display: flex; flex-direction: column; gap: 4px; font: inherit; color: inherit; }
+.tile:hover { border-color: var(--accent); transform: translateY(-1px); }
+.tile-name { font-weight: 600; font-size: 14.5px; }
+.tile-num { font-size: 26px; font-weight: 700; margin-top: 6px; }
+.tile-lbl { color: var(--muted); font-size: 13px; }
+.tile .chip { margin-top: 10px; align-self: flex-start; }
+
+/* summary */
+.filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 18px; }
+.filters select, .filters input { padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.kpis { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); margin-bottom: 18px; }
+.kpi-lbl { color: var(--muted); font-size: 13.5px; }
+.kpi-num { font-size: 28px; font-weight: 700; margin-top: 4px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.kpi-sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
+.charts { grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); }
+.wide { grid-column: 1 / -1; }
+.card h3 { margin: 0 0 14px; font-size: 15px; font-weight: 650; }
+.card h3 small { color: var(--muted); font-weight: 400; font-size: 13px; margin-left: 6px; }
+/* CSS charts */
+.vbars { display: flex; align-items: flex-end; gap: 6px; height: 220px; border-bottom: 1px solid var(--line); padding-top: 10px; }
+.vbar { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 4px; height: 100%; }
+.vbar i { display: block; width: 100%; max-width: 34px; border-radius: 5px 5px 0 0; background: var(--accent); }
+.vlabels { display: flex; gap: 6px; margin-top: 6px; }
+.vlabels span { flex: 1; text-align: center; font-size: 11.5px; color: var(--muted); }
+.pair { display: flex; gap: 3px; align-items: flex-end; height: 100%; width: 100%; justify-content: center; }
+.pair i { width: 42%; max-width: 20px; border-radius: 4px 4px 0 0; }
+.pair .t { background: var(--line); } .pair .a { background: var(--accent); } .pair .a.hit { background: var(--green); }
+.legend { display: flex; gap: 14px; font-size: 12.5px; color: var(--muted); margin-bottom: 8px; }
+.legend i { display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+.hbars { display: flex; flex-direction: column; gap: 9px; }
+.hrow { display: grid; grid-template-columns: 150px 1fr 70px; gap: 10px; align-items: center; font-size: 13px; }
+.hrow .nm { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: right; }
+.hrow .bar { height: 18px; border-radius: 0 5px 5px 0; background: var(--accent); }
+.hrow .v { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* problems */
+.verdict { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; }
+.verdict-icon { width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; font-size: 24px; background: var(--red-soft); color: var(--red); flex: 0 0 auto; }
+.verdict-title { font-size: 18px; font-weight: 700; }
+.change-banner { background: var(--green-soft); border-radius: 12px; padding: 10px 14px; font-size: 14px; margin-bottom: 16px; }
+.group { margin: 22px 0 10px; font-size: 15px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+.problem { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 10px; border-left: 4px solid var(--line); }
+.problem.red { border-left-color: var(--red); } .problem.amber { border-left-color: var(--amber); }
+.problem .body { flex: 1; }
+.p-title { font-weight: 650; } .p-detail { color: var(--muted); font-size: 14px; margin-top: 4px; }
+.p-fix { font-size: 14px; margin-top: 8px; } .p-fix b { color: var(--green); }
+.p-rows { color: var(--muted); font-size: 13px; margin-top: 6px; }
+.names { width: 100%; border-collapse: collapse; font-size: 14px; }
+.names td, .names th { padding: 9px 12px; border-bottom: 1px solid var(--line); text-align: left; }
+.names th { color: var(--muted); font-size: 12.5px; font-weight: 600; }
+.old { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--red); }
+.new { font-weight: 600; color: var(--green); }
+details summary { cursor: pointer; color: var(--muted); font-weight: 600; margin: 22px 0 10px; }
+
+/* table */
+.banner { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 12px; background: var(--accent-soft); margin-bottom: 14px; font-size: 14px; }
+.banner .btn { margin-left: auto; }
+.table-wrap { overflow: auto; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); }
+table.data { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 13.5px; }
+.data th, .data td { padding: 8px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; text-align: left; }
+.data th { background: var(--soft); font-weight: 650; }
+.data td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.data td.rn, .data th.rn { color: var(--muted); text-align: right; background: var(--soft); font-size: 12.5px; }
+.data td.err { background: var(--red-soft); color: var(--red); font-weight: 600; }
+.data td.warn { background: var(--amber-soft); }
+.data tbody tr:hover td:not(.err):not(.warn):not(.rn) { background: var(--soft); }
+.toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--panel); padding: 10px 18px; border-radius: 10px; font-size: 14px; }
+
+@media (max-width: 900px) {
+  .app { flex-direction: column; }
+  .side { width: 100%; flex: none; max-height: 40vh; }
+  .main { padding: 18px 16px 40px; }
+  .charts, .options { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<div class="demo-bar">
+  <b>UI demo</b>
+  <button data-go="upload" class="on">1 · Upload</button>
+  <button data-go="home">2 · Home</button>
+  <button data-go="summary">3 · Summary</button>
+  <button data-go="targets">4 · Targets</button>
+  <button data-go="problems">5 · Problems</button>
+  <button data-go="table">6 · Table</button>
+  <span class="sp"></span>
+  <button id="demoNav">☰ Collapse menu</button>
+  <button id="demoTheme">◐ Dark mode</button>
+  <span style="opacity:.6">Sample data only</span>
+</div>
+
+<div class="app">
+  <aside class="side">
+    <div class="brand">
+      <button class="nav-toggle" id="navToggle" title="Hide / show the menu">☰</button>
+      <div class="brand-text"><div class="brand-name">Sheets Dashboard</div><div class="brand-sub">View only · nothing is changed</div></div>
+    </div>
+    <nav class="nav">
+      <button class="nav-item" data-go="upload">⤒ <span class="label">Upload files</span></button>
+      <button class="nav-item" data-go="home">🏠 <span class="label">Home</span></button>
+      <button class="nav-item nav-file open"><span class="chev">▶</span><span class="label">Sales Tracker</span></button>
+      <div class="nav-tabs">
+        <button class="nav-item" data-go="targets"><span class="dot"></span><span class="label">Sales Out</span></button>
+        <button class="nav-item" data-go="summary"><span class="dot red"></span><span class="label">Customer PO Summary</span></button>
+        <button class="nav-item"><span class="dot amber"></span><span class="label">Quotations</span></button>
+        <button class="nav-item"><span class="dot amber"></span><span class="label">Stock</span></button>
+        <button class="nav-item"><span class="dot"></span><span class="label">Customer List</span></button>
+      </div>
+      <button class="nav-item nav-file"><span class="chev">▶</span><span class="label">Purchase Report 2026</span></button>
+    </nav>
+    <div class="side-foot">
+      <div class="updated">Updated 2 min ago<br>Refreshes by itself every 5 min</div>
+      <div class="foot-row"><button class="btn primary refresh">↻ Refresh</button><button class="btn icon" id="themeBtn" title="Light / dark">◐</button></div>
+    </div>
+  </aside>
+
+  <main class="main">
+
+    <!-- 1. UPLOAD -->
+    <section data-screen="upload">
+      <div class="top"><div><h1>Upload your files</h1><div class="subtitle">Add the latest Excel files, then open the dashboard.</div></div></div>
+      <div class="start">
+        <div class="drop">
+          <div class="drop-icon">⤒</div>
+          <div class="drop-title">Drag your Excel files here</div>
+          <div class="muted">You can drop many files at once — or pick one of the options below</div>
+        </div>
+        <div class="options">
+          <div class="card option"><div class="opt-icon">📄</div><div class="opt-title">Choose files</div><div class="opt-sub">Pick one or many — hold <b>Ctrl</b> to select several</div></div>
+          <div class="card option"><div class="opt-icon">📁</div><div class="opt-title">Choose a folder</div><div class="opt-sub">Adds every Excel file inside the folder</div></div>
+        </div>
+        <div class="hint">How to get the Excel file from Google Sheets: <b>File → Download → Microsoft Excel (.xlsx)</b></div>
+        <div class="list-title">Files in the dashboard (2)</div>
+        <div class="card file-row"><span style="font-size:22px">📄</span><div class="grow"><div class="fname">Sales Tracker</div><div class="fmeta">8 tabs · updated just now · health 86 · ✓ 12 problems fixed since last upload</div></div><button class="btn small">Replace</button><button class="btn small">Remove</button></div>
+        <div class="card file-row"><span style="font-size:22px">📄</span><div class="grow"><div class="fname">Purchase Report 2026</div><div class="fmeta">1 tab · updated yesterday · health 100</div></div><button class="btn small">Replace</button><button class="btn small">Remove</button></div>
+        <div class="center"><button class="btn primary big-btn" data-go="home">Open dashboard →</button></div>
+        <p class="hint" style="font-size:13px">🔒 Files stay on this computer. Uploading a file with the same name replaces the older copy. The original Google Sheet is never changed.</p>
+      </div>
+    </section>
+
+    <!-- 2. HOME -->
+    <section data-screen="home" hidden>
+      <div class="top"><div><h1>Overview</h1><div class="subtitle">Every tab at a glance. Click a box to open it.</div></div></div>
+      <div class="grid strip">
+        <div class="card"><div class="big" style="color:var(--amber)">86<span style="font-size:15px;color:var(--muted)"> / 100</span></div><div class="lbl">data health score</div></div>
+        <div class="card"><div class="big" style="color:var(--red)">7</div><div class="lbl">problems to fix</div></div>
+        <div class="card"><div class="big" style="color:var(--amber)">21</div><div class="lbl">things to double-check</div></div>
+        <div class="card"><div class="lbl" style="margin-bottom:8px">Want to clean up the sheets?</div><button class="btn primary" style="width:100%">⬇ Download fix list</button><div class="lbl" style="font-size:12.5px;margin-top:6px">184 cells to look at, with suggested fixes</div></div>
+      </div>
+      <div class="section-title">Sales Tracker</div>
+      <div class="progress-line">Since the last upload (yesterday): +14 rows · <span class="up">✓ 12 problems fixed</span> · <span class="down">2 new problems</span> · health 79 → <b>86</b> <span class="up">▲7</span></div>
+      <div class="grid tiles">
+        <button class="card tile" data-go="targets"><div class="tile-name">Sales Out</div><div class="tile-num">89%</div><div class="tile-lbl">of target achieved (Jan–Sep)</div><span class="chip green"><span class="dot"></span>No problems</span></button>
+        <button class="card tile" data-go="summary"><div class="tile-name">Customer PO Summary</div><div class="tile-num">₹4.82 Cr</div><div class="tile-lbl">PO Value (₹) · 412 rows</div><span class="chip red"><span class="dot red"></span>3 to fix</span></button>
+        <button class="card tile"><div class="tile-name">Quotations</div><div class="tile-num">₹1.26 Cr</div><div class="tile-lbl">Total (₹) · 96 rows</div><span class="chip amber"><span class="dot amber"></span>5 to check</span></button>
+        <button class="card tile"><div class="tile-name">Stock</div><div class="tile-num">1,240</div><div class="tile-lbl">Balance Stock · 64 rows</div><span class="chip amber"><span class="dot amber"></span>4 to check</span></button>
+        <button class="card tile"><div class="tile-name">Customer List</div><div class="tile-num">58</div><div class="tile-lbl">rows</div><span class="chip green"><span class="dot"></span>No problems</span></button>
+      </div>
+      <div class="section-title">Purchase Report 2026</div>
+      <div class="progress-line">First upload of this file — next time you upload a newer copy, you'll see here how many problems were fixed.</div>
+      <div class="grid tiles">
+        <button class="card tile"><div class="tile-name">Purchases</div><div class="tile-num">₹3.15 Cr</div><div class="tile-lbl">Amount (₹) · 288 rows</div><span class="chip green"><span class="dot"></span>No problems</span></button>
+      </div>
+    </section>
+
+    <!-- 3. SUMMARY (normal tab) -->
+    <section data-screen="summary" hidden>
+      <div class="top">
+        <div><button class="back" data-go="home">← Home</button><h1>Customer PO Summary</h1><div class="subtitle">Sales Tracker · 412 rows</div></div>
+        <div class="seg"><button class="active" data-go="summary">Summary</button><button data-go="problems">Problems <span class="count">3</span></button><button data-go="table">Table</button></div>
+      </div>
+      <div class="filters">
+        <span class="muted" style="font-weight:600;font-size:13.5px">Show only</span>
+        <select><option>All Status</option></select><select><option>All Salesperson</option></select><select><option>All Grade</option></select>
+        <input type="search" placeholder="🔍 Search…">
+      </div>
+      <div class="grid kpis">
+        <div class="card"><div class="kpi-lbl">Rows</div><div class="kpi-num">412</div><div class="kpi-sub">entries in this tab</div></div>
+        <div class="card"><div class="kpi-lbl">PO Value (₹)</div><div class="kpi-num">₹4.82 Cr</div><div class="kpi-sub">4,82,15,300</div></div>
+        <div class="card"><div class="kpi-lbl">Total Qty</div><div class="kpi-num">2.1 L</div><div class="kpi-sub">added up</div></div>
+        <div class="card"><div class="kpi-lbl">Latest month (Oct 2026)</div><div class="kpi-num">₹38.6 L</div><div class="kpi-sub"><span class="up">▲ 12%</span> vs Sep</div></div>
+        <div class="card"><div class="kpi-lbl">Customer</div><div class="kpi-num">74</div><div class="kpi-sub">different names</div></div>
+      </div>
+      <div class="grid charts">
+        <div class="card wide"><h3>PO Value (₹) by month <small>based on PO Date</small></h3><div class="vbars" id="trend"></div><div class="vlabels" id="trendL"></div></div>
+        <div class="card"><h3>Top 10 by Status</h3><div class="hbars" id="hb1"></div></div>
+        <div class="card"><h3>Top 10 by Salesperson</h3><div class="hbars" id="hb2"></div></div>
+        <div class="card"><h3>Top 10 by Customer</h3><div class="hbars" id="hb3"></div></div>
+        <div class="card"><h3>Top 10 by Product</h3><div class="hbars" id="hb4"></div></div>
+      </div>
+    </section>
+
+    <!-- 4. SUMMARY (target tab) -->
+    <section data-screen="targets" hidden>
+      <div class="top">
+        <div><button class="back" data-go="home">← Home</button><h1>Sales Out</h1><div class="subtitle">Sales Tracker · 4 rows</div></div>
+        <div class="seg"><button class="active">Summary</button><button>Problems <span class="count" style="background:var(--grey-soft);color:var(--muted)">✓</span></button><button>Table</button></div>
+      </div>
+      <div class="grid kpis">
+        <div class="card"><div class="kpi-lbl">Whole team</div><div class="kpi-num">89% <span class="chip amber">Behind</span></div><div class="kpi-sub">98.6 of 111 KL so far (Jan–Sep)</div><div class="kpi-sub">Full year target: 150 KL</div></div>
+        <div class="card"><div class="kpi-lbl">Rahul S. · DSR</div><div class="kpi-num">106% <span class="chip green">On target</span></div><div class="kpi-sub">66.1 of 62.2 KL so far (Jan–Sep)</div><div class="kpi-sub">Full year target: 84 KL</div></div>
+        <div class="card"><div class="kpi-lbl">Priya K. · DSR</div><div class="kpi-num">65% <span class="chip red">Behind</span></div><div class="kpi-sub">24.7 of 37.7 KL so far (Jan–Sep)</div><div class="kpi-sub">Full year target: 51 KL</div></div>
+        <div class="card"><div class="kpi-lbl">Amit P. · OBAM</div><div class="kpi-num">74% <span class="chip red">Behind</span></div><div class="kpi-sub">8.2 of 11.1 KL so far (Jan–Sep)</div><div class="kpi-sub">Full year target: 15 KL</div></div>
+      </div>
+      <div class="grid charts">
+        <div class="card wide"><h3>Target vs achieved, month by month <small>whole team · KL</small></h3>
+          <div class="legend"><span><i style="background:var(--line)"></i>Target</span><span><i style="background:var(--accent)"></i>Achieved (below target)</span><span><i style="background:var(--green)"></i>Achieved (hit target)</span></div>
+          <div class="vbars" id="tg"></div><div class="vlabels" id="tgL"></div></div>
+      </div>
+    </section>
+
+    <!-- 5. PROBLEMS -->
+    <section data-screen="problems" hidden>
+      <div class="top">
+        <div><button class="back" data-go="home">← Home</button><h1>Customer PO Summary</h1><div class="subtitle">Sales Tracker · 412 rows</div></div>
+        <div class="seg"><button data-go="summary">Summary</button><button class="active">Problems <span class="count">3</span></button><button data-go="table">Table</button></div>
+      </div>
+      <div class="verdict">
+        <div class="verdict-icon">!</div>
+        <div style="flex:1"><div class="verdict-title">3 problems to fix</div><div class="muted">We checked 412 rows. Row numbers are the same as in the sheet, so you can go straight to them.</div></div>
+        <button class="btn">⬇ Fix list for this tab</button>
+      </div>
+      <div class="change-banner">Since the last upload (yesterday): +14 rows · <span class="up">✓ 5 problems fixed</span> · health 74 → <b>81</b> <span class="up">▲7</span></div>
+
+      <div class="group"><span class="dot red"></span>Fix these — they make totals wrong</div>
+      <div class="card problem red"><div class="body">
+        <div class="p-title">Unreadable dates in “Dispatch Date” (column P)</div>
+        <div class="p-detail">6 cell(s) are not a valid date. Examples: “Payment Pending”, “05-02--2026”, “14-04-2026 / 04-06-2026”.</div>
+        <div class="p-fix"><b>How to fix:</b> Type one date per cell, as DD/MM/YYYY (for example 25/03/2024).</div>
+        <div class="p-rows">Row 211, 287, 301, 344, 380, 395</div></div><button class="btn small" data-go="table">Show me →</button></div>
+      <div class="card problem red"><div class="body">
+        <div class="p-title">“PO Value” doesn't match Qty × Price</div>
+        <div class="p-detail">In 99% of rows PO Value = Qty × Price, but not in these 4. Row 27: has 45,131, expected 38,247.</div>
+        <div class="p-fix"><b>How to fix:</b> Re-check the numbers in these rows and correct whichever one is wrong.</div>
+        <div class="p-rows">Row 27, 45, 188, 320</div></div><button class="btn small">Show me →</button></div>
+      <div class="card problem red"><div class="body">
+        <div class="p-title">Text in a number column: “Sold Qty” (column M)</div>
+        <div class="p-detail">3 cell(s) are not numbers, so totals ignore them. Examples: “Returned”, “CANCELLED”.</div>
+        <div class="p-fix"><b>How to fix:</b> Type only numbers in this column. Put notes like “Cancelled” in a separate Remarks column.</div>
+        <div class="p-rows">Row 45, 119, 260</div></div><button class="btn small">Show me →</button></div>
+
+      <div class="group"><span class="dot amber"></span>Double-check these</div>
+      <div class="card problem amber"><div class="body">
+        <div class="p-title">Same name spelled differently in “Salesperson” (column B)</div>
+        <div class="p-detail">“Rahul S.” also written as “rahul s.”, “Rahul  S.”. Reports count these as separate names.</div>
+        <div class="p-fix"><b>How to fix:</b> Pick one spelling and use it everywhere, so totals add up under one name.</div>
+        <div class="p-rows">Row 18, 62, 204</div></div><button class="btn small">Show me →</button></div>
+      <div class="card problem amber"><div class="body">
+        <div class="p-title">Missing “Invoice No.” (column Q)</div>
+        <div class="p-detail">22 of 412 rows are empty here while the rest are filled.</div>
+        <div class="p-fix"><b>How to fix:</b> Fill in the empty cells — or ignore this if the value is not known yet.</div>
+        <div class="p-rows">Row 390, 391, 392 … and 19 more</div></div><button class="btn small">Show me →</button></div>
+
+      <div class="group">✎ Clearer names <span class="muted" style="font-weight:400;font-size:13.5px">— optional: rename these in the sheet so everyone understands them</span></div>
+      <div class="card" style="padding:4px 8px"><table class="names">
+        <thead><tr><th>Where</th><th>Now</th><th>Better</th><th>Why</th></tr></thead>
+        <tbody>
+          <tr><td class="muted">Tab name</td><td class="old">QUATATION SUMMARY</td><td class="new">Quotation Summary</td><td class="muted">spelling, ALL CAPITALS</td></tr>
+          <tr><td class="muted">Column L</td><td class="old">Total PO Rate</td><td class="new">PO Value (₹)</td><td class="muted">add the unit (₹)</td></tr>
+          <tr><td class="muted">Column J</td><td class="old">Invoice nob</td><td class="new">Invoice No.</td><td class="muted">spelling / short form</td></tr>
+          <tr><td class="muted">Column D</td><td class="old">Type</td><td class="new">Type (2)</td><td class="muted">same name as column B</td></tr>
+        </tbody></table></div>
+      <details><summary>Tidy-up suggestions (2) — optional, nothing is wrong</summary>
+        <div class="card problem"><div class="body"><div class="p-title">Extra spaces in text</div><div class="p-detail">120 cell(s) have spaces at the start/end or double spaces.</div></div></div>
+      </details>
+    </section>
+
+    <!-- 6. TABLE ("Show me") -->
+    <section data-screen="table" hidden>
+      <div class="top">
+        <div><button class="back" data-go="home">← Home</button><h1>Customer PO Summary</h1><div class="subtitle">Sales Tracker · 412 rows</div></div>
+        <div class="seg"><button data-go="summary">Summary</button><button data-go="problems">Problems <span class="count">3</span></button><button class="active">Table</button></div>
+      </div>
+      <div class="banner">Showing only the rows for: <b>Unreadable dates in “Dispatch Date” (column P)</b><button class="btn small">Show all rows</button></div>
+      <div class="legend"><span><i style="background:var(--red-soft);border:1px solid var(--red)"></i>needs fixing</span><span><i style="background:var(--amber-soft);border:1px solid var(--amber)"></i>double-check</span><span>Click a heading to sort.</span></div>
+      <div class="table-wrap"><table class="data">
+        <thead><tr><th class="rn">Row</th><th>Dispatch Date</th><th>Customer</th><th>Salesperson</th><th>PO No.</th><th>PO Date</th><th>Product</th><th>Qty</th><th>PO Value (₹)</th></tr></thead>
+        <tbody>
+          <tr><td class="rn">211</td><td class="err">Payment Pending</td><td>Alpha Engineering</td><td>Rahul S.</td><td>4500112233</td><td>14 Aug 2026</td><td>Hydraulic Oil 68 – 209L</td><td class="num">418</td><td class="num">83,600</td></tr>
+          <tr><td class="rn">287</td><td class="err">05-02--2026</td><td>Bluewave Pvt Ltd</td><td>Priya K.</td><td>4500113344</td><td>02 Sep 2026</td><td>Gear Oil 220 – 209L</td><td class="num">209</td><td class="num">52,250</td></tr>
+          <tr><td class="rn">301</td><td class="err">14-04-2026 / 04-06-2026</td><td>Crest Industries</td><td>Rahul S.</td><td>Verbal order</td><td>08 Sep 2026</td><td>Grease EP2 – 18kg</td><td class="num">36</td><td class="num">17,280</td></tr>
+          <tr><td class="rn">344</td><td class="err">Stock not available</td><td>Delta Steel</td><td class="warn">rahul s.</td><td>4500114455</td><td>22 Sep 2026</td><td>Hydraulic Oil 46 – 209L</td><td class="num">627</td><td class="num">1,19,130</td></tr>
+          <tr><td class="rn">380</td><td class="err">Oil testing</td><td>Evergreen Foods</td><td>Amit P.</td><td>4500115566</td><td>01 Oct 2026</td><td>Turbine Oil 46 – 209L</td><td class="num">209</td><td class="num">71,060</td></tr>
+          <tr><td class="rn">395</td><td class="err">Payment Pending</td><td>Fusion Infra</td><td>Priya K.</td><td>4500116677</td><td>08 Oct 2026</td><td>Gear Oil 320 – 209L</td><td class="num">418</td><td class="num">1,08,680</td></tr>
+        </tbody></table></div>
+      <div class="muted" style="text-align:right;margin-top:12px;font-size:14px">6 rows</div>
+    </section>
+
+  </main>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script>
+// ---- sample chart data (made up) ----
+const months = ['Nov','Dec','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct'];
+const trend = [18, 22, 15, 26, 31, 19, 24, 35, 28, 41, 34, 39];
+const max = Math.max(...trend);
+document.getElementById('trend').innerHTML = trend.map(v => `<div class="vbar" title="₹${v} L"><i style="height:${v / max * 100}%"></i></div>`).join('');
+document.getElementById('trendL').innerHTML = months.map(m => `<span>${m}</span>`).join('');
+
+const hbars = (id, rows, color) => {
+  const m = Math.max(...rows.map(r => r[1]));
+  document.getElementById(id).innerHTML = rows.map(([n, v]) =>
+    `<div class="hrow"><span class="nm" title="${n}">${n}</span><div class="bar" style="width:${v / m * 100}%;background:${color}"></div><span class="v">₹${v} L</span></div>`).join('');
+};
+hbars('hb1', [['Dispatched', 392], ['Pending dispatch', 58], ['Payment pending', 21], ['Cancelled', 11]], 'var(--accent)');
+hbars('hb2', [['Rahul S.', 214], ['Priya K.', 151], ['Amit P.', 72], ['Neha D.', 45]], 'var(--c2)');
+hbars('hb3', [['Alpha Engineering', 66], ['Bluewave Pvt Ltd', 54], ['Crest Industries', 41], ['Delta Steel', 38], ['Evergreen Foods', 29], ['Fusion Infra', 22], ['All others (68)', 232]], 'var(--c3)');
+hbars('hb4', [['Hydraulic Oil 68 – 209L', 118], ['Gear Oil 220 – 209L', 96], ['Grease EP2 – 18kg', 61], ['Hydraulic Oil 46 – 209L', 57], ['Turbine Oil 46 – 209L', 34]], 'var(--c4)');
+
+const T = [12,12,12,13,13,13,12,12,12,13,13,13], A = [9.5,10.8,13.2,0,1.5,24.4,12.1,9.1,18.5,null,null,null];
+const tm = 25;
+document.getElementById('tg').innerHTML = T.map((t, i) => `<div class="vbar"><div class="pair">
+  <i class="t" style="height:${t / tm * 100}%" title="Target ${t}"></i>
+  ${A[i] === null ? '' : `<i class="a ${A[i] >= t ? 'hit' : ''}" style="height:${A[i] / tm * 100}%" title="Achieved ${A[i]}"></i>`}
+</div></div>`).join('');
+document.getElementById('tgL').innerHTML = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'].map(m => `<span>${m}</span>`).join('');
+
+// ---- screen switching ----
+function go(name) {
+  document.querySelectorAll('[data-screen]').forEach(s => s.hidden = s.dataset.screen !== name);
+  document.querySelectorAll('.demo-bar [data-go]').forEach(b => b.classList.toggle('on', b.dataset.go === name));
+  document.querySelectorAll('.nav [data-go]').forEach(b => b.classList.toggle('active', b.dataset.go === name));
+  document.querySelector('.main').scrollTop = 0;
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-go]');
+  if (b) { go(b.dataset.go); return; }
+  if (e.target.closest('.nav-file')) e.target.closest('.nav-file').classList.toggle('open');
+  if (e.target.closest('.btn') && /Download|Replace|Remove|Refresh|Show all/.test(e.target.textContent)) toast('Demo only — this button works in the real app');
+});
+const toggleNav = () => {
+  document.body.classList.toggle('nav-collapsed');
+  document.getElementById('demoNav').textContent = document.body.classList.contains('nav-collapsed') ? '☰ Expand menu' : '☰ Collapse menu';
+};
+document.getElementById('navToggle').onclick = toggleNav;
+document.getElementById('demoNav').onclick = toggleNav;
+const toggleTheme = () => {
+  const d = document.documentElement.dataset.theme === 'dark';
+  document.documentElement.dataset.theme = d ? 'light' : 'dark';
+  document.getElementById('demoTheme').textContent = d ? '◐ Dark mode' : '◐ Light mode';
+};
+document.getElementById('themeBtn').onclick = toggleTheme;
+document.getElementById('demoTheme').onclick = toggleTheme;
+function toast(m) { const t = document.getElementById('toast'); t.textContent = m; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => t.hidden = true, 2200); }
+go('upload');
+</script>
+</body>
+</html>

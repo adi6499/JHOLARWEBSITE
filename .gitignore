@@ -1,0 +1,8 @@
+node_modules/
+data/
+*.xlsx
+*.xls
+*.csv
+
+# Local list of Google Drive files (contains private file IDs) — never commit
+sources.json

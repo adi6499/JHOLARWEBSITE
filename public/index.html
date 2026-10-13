@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sheets Dashboard</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <aside class="side">
+    <div class="brand">
+      <div class="logo">▦</div>
+      <div>
+        <div class="brand-name">Sheets Dashboard</div>
+        <div class="brand-sub">View only · nothing is changed</div>
+      </div>
+    </div>
+
+    <nav class="nav" id="nav"></nav>
+
+    <div class="side-foot">
+      <div class="updated" id="syncStatus">Loading…</div>
+      <div class="foot-row">
+        <button class="btn primary" id="refreshBtn" type="button">↻ Refresh</button>
+        <button class="btn icon" id="themeBtn" type="button" title="Light / dark">◐</button>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main" id="main">
+    <header class="top" id="top">
+      <div>
+        <button class="back" id="backBtn" type="button" hidden>← Home</button>
+        <h1 id="title">Overview</h1>
+        <div class="subtitle" id="subtitle"></div>
+      </div>
+      <div class="seg" id="tabs" hidden>
+        <button data-view="dashboard" type="button">Summary</button>
+        <button data-view="health" type="button">Problems <span class="count" id="issueCount"></span></button>
+        <button data-view="data" type="button">Table</button>
+      </div>
+    </header>
+
+    <section id="view-start" class="view">
+      <div class="start">
+        <label class="drop" id="drop">
+          <input type="file" id="fileInput" accept=".xlsx,.xls,.xlsm,.csv" multiple hidden>
+          <div class="drop-icon">⤒</div>
+          <div class="drop-title">Drag your Excel files here</div>
+          <div class="drop-sub">or <span class="link">click to choose files</span></div>
+          <div class="drop-hint">From Google Sheets: <b>File → Download → Microsoft Excel (.xlsx)</b></div>
+        </label>
+        <div class="start-list" id="startList"></div>
+        <div class="start-actions">
+          <button class="btn primary big-btn" id="openDash" type="button">Open dashboard →</button>
+        </div>
+        <p class="muted small-note">🔒 Files stay on this computer. Uploading a file with the same name replaces the older copy. The original Google Sheet is never changed.</p>
+      </div>
+    </section>
+    <section id="view-home" class="view" hidden></section>
+    <div class="filters" id="filters" hidden></div>
+    <section id="view-dashboard" class="view" hidden></section>
+    <section id="view-health" class="view" hidden></section>
+    <section id="view-data" class="view" hidden></section>
+  </main>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="vendor/xlsx.full.min.js"></script>
+  <script src="vendor/chart.umd.js"></script>
+  <script src="analyze.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

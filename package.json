@@ -1,0 +1,15 @@
+{
+  "name": "sheets-dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Offline dashboard + data-health checker for Excel / Google Sheets downloads. Files never leave the PC.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "postinstall": "node scripts/copy-vendor.js"
+  },
+  "dependencies": {
+    "chart.js": "^4.4.7",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+  }
+}

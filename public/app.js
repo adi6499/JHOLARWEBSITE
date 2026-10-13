@@ -321,16 +321,20 @@
   function goStart() { state.screen = 'start'; render(); $('#main').scrollTop = 0; }
 
   // ---------- upload (saved into the app's data folder on this PC) ----------
-  async function uploadFiles(list) {
-    const files = [...list].filter((f) => /\.(xlsx|xlsm|xls|csv)$/i.test(f.name));
-    if (!files.length) { toast('Please choose Excel files (.xlsx, .xls or .csv).'); return; }
+  const APP_HEADERS = { 'X-App': 'sheets-dashboard' };
+  // replaceFile = name of the file in the data folder that this upload should replace.
+  async function uploadFiles(list, replaceFile) {
+    const all = [...list];
+    const files = all.filter((f) => /\.(xlsx|xlsm|xls|csv)$/i.test(f.name) && !f.name.startsWith('~$'));
+    if (!files.length) { toast(all.length ? 'No Excel files found there (.xlsx, .xls or .csv).' : 'Please choose Excel files.'); return; }
     const drop = $('#drop');
     drop.classList.add('busy');
     $('.drop-title').textContent = `Uploading ${plural(files.length, 'file')}…`;
     const failed = [];
     for (const f of files) {
       try {
-        const r = await fetch('/api/upload?name=' + encodeURIComponent(f.name), { method: 'POST', headers: { 'X-App': 'sheets-dashboard' }, body: f });
+        const q = '?name=' + encodeURIComponent(f.name) + (replaceFile ? '&replace=' + encodeURIComponent(replaceFile) : '');
+        const r = await fetch('/api/upload' + q, { method: 'POST', headers: APP_HEADERS, body: f });
         if (!r.ok) { const j = await r.json().catch(() => ({})); failed.push(`${f.name}: ${j.error || 'upload failed'}`); }
       } catch (e) { failed.push(`${f.name}: upload failed`); }
     }
@@ -338,25 +342,48 @@
     $('.drop-title').textContent = 'Drag your Excel files here';
     await syncAll();
     const ok = files.length - failed.length;
-    if (failed.length) toast(failed.join(' · '), 7000);
-    else toast(`✓ ${plural(ok, 'file')} uploaded`);
+    if (failed.length) toast((ok ? `✓ ${plural(ok, 'file')} uploaded. ` : '') + failed.join(' · '), 8000);
+    else toast(replaceFile ? `✓ “${replaceFile}” replaced with the new copy` : `✓ ${plural(ok, 'file')} uploaded`);
+    const skipped = all.length - files.length;
+    if (skipped > 0 && !failed.length && all.length > 1) setTimeout(() => toast(`(${plural(skipped, 'other file')} in that folder were not Excel files and were skipped)`), 3600);
+  }
+
+  async function removeSource(src) {
+    const isLink = src.kind !== 'local';
+    const name = (state.files.find((f) => f.id === src.id) || src).name;
+    const msg = isLink
+      ? `Remove “${name}” from the dashboard?\n\nOnly the link is taken off this list. The Google Sheet itself is not touched.`
+      : `Remove “${name}” from the dashboard?\n\nThe app's copy is moved to a “_removed” folder (not deleted). Your original file is not touched.`;
+    if (!confirm(msg)) return;
+    try {
+      const r = await fetch('/api/remove?id=' + encodeURIComponent(src.id), { method: 'POST', headers: APP_HEADERS });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { toast(j.error || 'Could not remove it.'); return; }
+      if (state.sel && state.sel.fileId === src.id) state.sel = null;
+      await syncAll();
+      toast(`Removed “${name}”`);
+    } catch (e) { toast('Could not remove it.'); }
   }
 
   function renderStart() {
     const rows = state.sources.map((src) => {
       const f = state.files.find((x) => x.id === src.id);
-      const icon = src.kind === 'local' ? '📄' : '☁';
+      const isLocal = src.kind === 'local';
+      const icon = isLocal ? '📄' : '🔗';
       const ch = f ? changes(f.id) : null;
       const p = f && progress[f.id] && progress[f.id].cur;
-      const meta = f ? `${plural(f.sheets.length, 'tab')} · updated ${ago(f.addedAt)}${p ? ` · health ${fileHealth(p.tabs)}` : ''}${ch && ch.fixed ? ` · ✓ ${plural(ch.fixed, 'problem')} fixed since last upload` : ''}`
+      const meta = f ? `${plural(f.sheets.length, 'tab')} · updated ${ago(f.addedAt)}${p ? ` · health ${fileHealth(p.tabs)}` : ''}${ch && ch.fixed ? ` · ✓ ${plural(ch.fixed, 'problem')} fixed since last upload` : ''}${isLocal ? '' : ' · from Google Sheets'}`
         : src.status === 'error' ? src.error : 'Loading…';
       return `<div class="card file-row ${!f && src.status === 'error' ? 'err' : ''}">
         <span class="ficon">${icon}</span>
         <div class="grow"><div class="fname">${esc(f ? f.name : src.name)}</div><div class="fmeta">${esc(meta)}</div></div>
-        ${f ? '<span class="chip green" style="margin:0">Ready</span>' : ''}
+        <div class="row-actions">
+          ${isLocal ? `<button class="btn small" data-replace="${esc(src.file)}" type="button" title="Upload a newer copy of this file">Replace</button>` : ''}
+          <button class="btn small" data-remove="${esc(src.id)}" type="button" title="Take this file off the dashboard">Remove</button>
+        </div>
       </div>`;
     }).join('');
-    $('#startList').innerHTML = state.sources.length ? `<h3>Files in the dashboard</h3>${rows}` : '';
+    $('#startList').innerHTML = state.sources.length ? `<h3>Files in the dashboard (${state.sources.length})</h3>${rows}` : '';
     $('#openDash').disabled = !state.files.length;
   }
 
@@ -819,12 +846,33 @@
   // ---------- events ----------
   function wire() {
     $('#refreshBtn').addEventListener('click', () => syncAll());
+
+    // Collapsible menu (remembered on this PC). Charts resize to the new width.
+    const setNav = (collapsed) => {
+      document.body.classList.toggle('nav-collapsed', collapsed);
+      $('#navToggle').title = collapsed ? 'Show the menu' : 'Hide the menu';
+      try { localStorage.setItem('sd-nav', collapsed ? 'collapsed' : 'open'); } catch (e) { /* ignore */ }
+      setTimeout(() => charts.forEach((c) => { try { c.resize(); } catch (e) { /* ignore */ } }), 220);
+    };
+    let navPref = null;
+    try { navPref = localStorage.getItem('sd-nav'); } catch (e) { /* ignore */ }
+    setNav(navPref === 'collapsed');
+    $('#navToggle').addEventListener('click', () => setNav(!document.body.classList.contains('nav-collapsed')));
     $('#backBtn').addEventListener('click', goHome);
     $('#openDash').addEventListener('click', goHome);
 
     // Upload: click to choose, or drag files anywhere onto the upload screen.
     const drop = $('#drop');
     $('#fileInput').addEventListener('change', (e) => { uploadFiles(e.target.files); e.target.value = ''; });
+    $('#folderInput').addEventListener('change', (e) => { uploadFiles(e.target.files); e.target.value = ''; });
+    let replaceTarget = null;
+    $('#replaceInput').addEventListener('change', (e) => { if (e.target.files.length) uploadFiles(e.target.files, replaceTarget); e.target.value = ''; });
+    $('#startList').addEventListener('click', (e) => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      if (b.dataset.replace) { replaceTarget = b.dataset.replace; $('#replaceInput').click(); return; }
+      if (b.dataset.remove) { const src = state.sources.find((s) => s.id === b.dataset.remove); if (src) removeSource(src); }
+    });
     const onStart = () => state.screen === 'start';
     ['dragenter', 'dragover'].forEach((ev) => document.addEventListener(ev, (e) => { e.preventDefault(); if (onStart()) drop.classList.add('over'); }));
     document.addEventListener('dragleave', (e) => { if (!e.relatedTarget) drop.classList.remove('over'); });

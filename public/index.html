@@ -9,8 +9,8 @@
 <body>
   <aside class="side">
     <div class="brand">
-      <div class="logo">▦</div>
-      <div>
+      <button class="nav-toggle" id="navToggle" type="button" title="Hide / show the menu" aria-label="Hide or show the menu">☰</button>
+      <div class="brand-text">
         <div class="brand-name">Sheets Dashboard</div>
         <div class="brand-sub">View only · nothing is changed</div>
       </div>
@@ -21,7 +21,7 @@
     <div class="side-foot">
       <div class="updated" id="syncStatus">Loading…</div>
       <div class="foot-row">
-        <button class="btn primary" id="refreshBtn" type="button">↻ Refresh</button>
+        <button class="btn primary" id="refreshBtn" type="button" title="Get the latest data now">↻ Refresh</button>
         <button class="btn icon" id="themeBtn" type="button" title="Light / dark">◐</button>
       </div>
     </div>
@@ -43,18 +43,33 @@
 
     <section id="view-start" class="view">
       <div class="start">
-        <label class="drop" id="drop">
-          <input type="file" id="fileInput" accept=".xlsx,.xls,.xlsm,.csv" multiple hidden>
+        <div class="drop" id="drop">
           <div class="drop-icon">⤒</div>
           <div class="drop-title">Drag your Excel files here</div>
-          <div class="drop-sub">or <span class="link">click to choose files</span></div>
-          <div class="drop-hint">From Google Sheets: <b>File → Download → Microsoft Excel (.xlsx)</b></div>
-        </label>
+          <div class="drop-sub">You can drop many files at once — or pick one of the options below</div>
+        </div>
+
+        <div class="options">
+          <label class="card option">
+            <input type="file" id="fileInput" accept=".xlsx,.xls,.xlsm,.csv" multiple hidden>
+            <div class="opt-icon">📄</div>
+            <div class="opt-title">Choose files</div>
+            <div class="opt-sub">Pick one or many — hold <b>Ctrl</b> to select several</div>
+          </label>
+          <label class="card option">
+            <input type="file" id="folderInput" webkitdirectory multiple hidden>
+            <div class="opt-icon">📁</div>
+            <div class="opt-title">Choose a folder</div>
+            <div class="opt-sub">Adds every Excel file inside the folder</div>
+          </label>
+        </div>
+        <input type="file" id="replaceInput" accept=".xlsx,.xls,.xlsm,.csv" hidden>
+        <div class="drop-hint">How to get the Excel file from Google Sheets: <b>File → Download → Microsoft Excel (.xlsx)</b></div>
         <div class="start-list" id="startList"></div>
         <div class="start-actions">
           <button class="btn primary big-btn" id="openDash" type="button">Open dashboard →</button>
         </div>
-        <p class="muted small-note">🔒 Files stay on this computer. Uploading a file with the same name replaces the older copy. The original Google Sheet is never changed.</p>
+        <p class="muted small-note">🔒 Files stay on this computer. Uploading a file with the same name (even “Sales Tracker (1).xlsx”) replaces the older copy. The original Google Sheet is never changed.</p>
       </div>
     </section>
     <section id="view-home" class="view" hidden></section>

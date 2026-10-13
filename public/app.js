@@ -27,6 +27,7 @@
     fromIssue: null,    // { title } when rows were opened from a problem
     locate: null,       // row number to scroll to in the table
     lastSync: null,
+    canSave: true,      // false on read-only hosting (e.g. Vercel): uploads stay in this browser
   };
   let charts = [];
   let syncing = false;
@@ -276,20 +277,35 @@
   }
 
   // ---------- fetching (read-only) ----------
+  // Files uploaded on a site that cannot store files (e.g. the Vercel website) are kept
+  // only in this browser (IndexedDB) and never sent to the server. Their ids start with "dev:".
+  const isDev = (id) => String(id).startsWith('dev:');
   async function loadSourceList() {
-    let list;
-    try { list = await (await fetch('/api/sources')).json(); } catch (e) { return; }
+    let list = null;
+    try { const r = await fetch('/api/sources'); if (r.ok) list = await r.json(); } catch (e) { /* offline */ }
+    const recs = (await store.all()) || [];
+    if (!list) { if (!recs.some((r) => isDev(r.id))) return; list = state.sources.filter((s) => !isDev(s.id)); }
+    const devs = recs.filter((r) => isDev(r.id)).sort((a, b) => a.name.localeCompare(b.name))
+      .map((r) => ({ id: r.id, name: r.name, kind: 'device', file: r.file }));
+    list = [...devs, ...list];
     const old = new Map(state.sources.map((s) => [s.id, s]));
     state.sources = list.map((s) => ({ status: 'loading', error: '', ...(old.get(s.id) || {}), ...s }));
     const ids = new Set(list.map((s) => s.id));
     state.files = state.files.filter((f) => ids.has(f.id));
-    for (const rec of (await store.all()) || []) if (!ids.has(rec.id)) store.del(rec.id);
+    for (const rec of recs) if (!ids.has(rec.id)) store.del(rec.id);
     let gone = false;
     for (const id of Object.keys(progress)) if (!ids.has(id)) { delete progress[id]; gone = true; }
     if (gone) saveProgress(progress);
   }
 
   async function fetchSource(src) {
+    if (src.kind === 'device') { // already in this browser — just make sure it is loaded
+      if (state.files.some((f) => f.id === src.id)) { src.status = 'ok'; return; }
+      const rec = ((await store.all()) || []).find((r) => r.id === src.id);
+      if (rec && addRecord(rec, { save: false })) { src.status = 'ok'; src.error = ''; }
+      else { src.status = 'error'; src.error = 'This file could not be read. Upload it again.'; }
+      return;
+    }
     try {
       const r = await fetch(src.kind === 'local' ? '/api/local?file=' + encodeURIComponent(src.file) : '/api/drive?id=' + encodeURIComponent(src.id));
       if (!r.ok) {
@@ -374,7 +390,26 @@
     drop.classList.add('busy');
     $('.drop-title').textContent = `Uploading ${plural(files.length, 'file')}…`;
     const failed = [];
+    const toDevice = !state.canSave || (replaceFile && isDev(replaceFile));
     for (const f of files) {
+      if (toDevice) { // keep it in this browser only
+        try {
+          const name = f.name.replace(/\s*\(\d+\)(?=\.[a-z]+$)/i, ''); // "Sales Tracker (1).xlsx" replaces "Sales Tracker.xlsx"
+          const id = replaceFile && isDev(replaceFile) ? replaceFile : 'dev:' + name;
+          const prev = state.sources.find((s) => s.id === id);
+          const rec = { id, name: prev ? prev.name : name.replace(/\.(xlsx|xlsm|xls|csv)$/i, ''), file: name, addedAt: Date.now(), buf: await f.arrayBuffer() };
+          if (!state.sources.some((s) => s.id === id)) state.sources.unshift({ id, name: rec.name, kind: 'device', file: name, status: 'ok', error: '' });
+          if (addRecord(rec, { save: false })) {
+            await store.put(rec); // wait until it is safely stored before the list refreshes
+            const file = state.files.find((x) => x.id === id);
+            if (file) recordVersion(id, rec.buf, file.sheets);
+          } else {
+            failed.push(`${f.name}: no readable data in this file`);
+            if (!prev) state.sources = state.sources.filter((s) => s.id !== id);
+          }
+        } catch (e) { failed.push(`${f.name}: could not be read`); }
+        continue;
+      }
       try {
         const q = '?name=' + encodeURIComponent(f.name) + (replaceFile ? '&replace=' + encodeURIComponent(replaceFile) : '');
         const r = await fetch('/api/upload' + q, { method: 'POST', headers: APP_HEADERS, body: f });
@@ -386,14 +421,24 @@
     await syncAll();
     const ok = files.length - failed.length;
     if (failed.length) toast((ok ? `${plural(ok, 'file')} uploaded. ` : '') + failed.join(' · '), 8000);
-    else toast(replaceFile ? `“${replaceFile}” replaced with the new copy` : `${plural(ok, 'file')} uploaded`);
+    else toast(replaceFile ? `“${replaceFile.replace(/^dev:/, '')}” replaced with the new copy` : `${plural(ok, 'file')} ${toDevice ? 'added — kept in this browser only' : 'uploaded'}`);
     const skipped = all.length - files.length;
     if (skipped > 0 && !failed.length && all.length > 1) setTimeout(() => toast(`${plural(skipped, 'other file')} in that folder were not Excel files and were skipped`), 3600);
   }
 
   async function removeSource(src) {
-    const isLink = src.kind !== 'local';
+    const isLink = src.kind === 'drive';
     const name = (state.files.find((f) => f.id === src.id) || src).name;
+    if (src.kind === 'device') {
+      if (!confirm(`Remove “${name}” from this browser?\n\nOnly the copy kept in this browser is removed. Your original file is not touched.`)) return;
+      await store.del(src.id);
+      delete progress[src.id]; saveProgress(progress);
+      state.files = state.files.filter((f) => f.id !== src.id);
+      if (state.sel && state.sel.fileId === src.id) state.sel = null;
+      await syncAll();
+      toast(`Removed “${name}”`);
+      return;
+    }
     const msg = isLink
       ? `Remove “${name}” from the dashboard?\n\nOnly the link is taken off this list. The Google Sheet itself is not touched.`
       : `Remove “${name}” from the dashboard?\n\nThe app's copy is moved to a “_removed” folder (not deleted). Your original file is not touched.`;
@@ -411,21 +456,25 @@
   function renderStart() {
     const rows = state.sources.map((src) => {
       const f = state.files.find((x) => x.id === src.id);
-      const isLocal = src.kind === 'local';
+      const isLocal = src.kind === 'local' || src.kind === 'device';
       const ch = f ? changes(f.id) : null;
       const p = f && progress[f.id] && progress[f.id].cur;
-      const meta = f ? `${plural(f.sheets.length, 'tab')} · updated ${ago(f.addedAt)}${p ? ` · health ${fileHealth(p.tabs)}` : ''}${ch && ch.fixed ? ` · ${plural(ch.fixed, 'problem')} fixed since last upload` : ''}${isLocal ? '' : ' · from Google Sheets'}`
+      const where = src.kind === 'device' ? ' · kept in this browser only' : src.kind === 'drive' ? ' · from Google Sheets' : '';
+      const meta = f ? `${plural(f.sheets.length, 'tab')} · updated ${ago(f.addedAt)}${p ? ` · health ${fileHealth(p.tabs)}` : ''}${ch && ch.fixed ? ` · ${plural(ch.fixed, 'problem')} fixed since last upload` : ''}${where}`
         : src.status === 'error' ? src.error : 'Loading…';
       return `<div class="card file-row ${!f && src.status === 'error' ? 'err' : ''}">
         <span class="card-icon">${I(isLocal ? 'file-spreadsheet' : 'cloud')}</span>
         <div class="grow"><div class="fname">${esc(f ? f.name : src.name)}</div><div class="fmeta">${esc(meta)}</div></div>
         <div class="acts">
-          ${isLocal ? `<button class="btn small" data-replace="${esc(src.file)}" type="button" title="Upload a newer copy of this file">${I('replace', 'sm')}Replace</button>` : ''}
+          ${isLocal ? `<button class="btn small" data-replace="${esc(src.kind === 'device' ? src.id : src.file)}" type="button" title="Upload a newer copy of this file">${I('replace', 'sm')}Replace</button>` : ''}
           <button class="btn small" data-remove="${esc(src.id)}" type="button" title="Take this file off the dashboard">${I('trash-2', 'sm')}Remove</button>
         </div>
       </div>`;
     }).join('');
     $('#startList').innerHTML = state.sources.length ? `<div class="list-head">Files in the dashboard (${state.sources.length})</div>${rows}` : '';
+    $('#startNote').textContent = state.canSave
+      ? 'Files stay on this computer. A file with the same name — even “Sales Tracker (1).xlsx” — replaces the older copy. The original Google Sheet is never changed.'
+      : 'Private: files are read and kept in this browser on this computer only — they are never uploaded to any server. A file with the same name replaces the older copy. Use the same browser next time to see them again.';
     $('#openDash').disabled = !state.files.length;
   }
 
@@ -1407,6 +1456,7 @@
   async function init() {
     const t = pref('sd-theme', null); if (t) document.documentElement.dataset.theme = t;
     wire();
+    try { const r = await fetch('/api/info'); if (r.ok) state.canSave = (await r.json()).canSave !== false; } catch (e) { /* keep default */ }
     await loadSourceList();
     render();
     // Show the last copy instantly (works offline), then get fresh data.

@@ -117,6 +117,7 @@ const cleanFileName = (s) => path.basename(String(s || '')).replace(/[<>:"/\\|?*
 // ?replace=<file in data/> forces which file it replaces (the "Replace" button).
 const MAX_UPLOAD = 50 * 1024 * 1024;
 function handleUpload(req, res, url) {
+  if (!checkCanSave()) return sendJson(res, 501, { error: 'This website cannot store files. Reload the page — files will be kept in your browser instead.' });
   if (!fromApp(req)) return sendJson(res, 403, { error: 'Upload blocked: please open the app from the “Start Dashboard” shortcut (http://localhost:5180) and try again.' });
   let name = cleanFileName(url.searchParams.get('name'));
   if (!/\.(xlsx|xlsm|xls|csv)$/i.test(name) || name.startsWith('~$')) return sendJson(res, 400, { error: 'Please choose an Excel file (.xlsx, .xls or .csv).' });
@@ -168,6 +169,22 @@ function handleRemove(req, res, url) {
   sendJson(res, 200, { ok: true });
 }
 
+// Can this server keep uploaded files? (No on read-only hosting such as Vercel —
+// then the page keeps uploads in the visitor's own browser instead.)
+let canSave = null;
+function checkCanSave() {
+  if (canSave !== null) return canSave;
+  if (process.env.READONLY === '1') return (canSave = false); // test switch: behave like read-only hosting
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    const probe = path.join(DATA_DIR, '.write-test');
+    fs.writeFileSync(probe, 'ok');
+    fs.unlinkSync(probe);
+    canSave = true;
+  } catch (e) { canSave = false; }
+  return canSave;
+}
+
 function saveSources(list) {
   fs.writeFileSync(path.join(__dirname, 'sources.json'), JSON.stringify(list, null, 2) + '\n');
 }
@@ -180,6 +197,7 @@ http.createServer((req, res) => {
   if (url.pathname === '/api/drive') return handleDrive(req, res, url);
   if (url.pathname === '/api/local') return handleLocal(req, res, url);
   if (url.pathname === '/api/sources') return sendJson(res, 200, allSources());
+  if (url.pathname === '/api/info') return sendJson(res, 200, { canSave: checkCanSave() });
 
   let rel = decodeURIComponent(url.pathname);
   if (rel === '/') rel = '/index.html';

@@ -329,14 +329,28 @@
   const isDev = (id) => String(id).startsWith('dev:');
   const isLink = (id) => String(id).startsWith('link:');
   const isKept = (id) => isDev(id) || isLink(id);
+  // The list of pasted links is saved in localStorage (small, survives even if the cached
+  // copies are cleared). The downloaded sheet data itself stays in IndexedDB (too big for localStorage).
+  const LINKS_KEY = 'sd-links';
+  function savedLinks() { try { const v = JSON.parse(localStorage.getItem(LINKS_KEY)); return Array.isArray(v) ? v : []; } catch (e) { return []; } }
+  function saveLinks(list) { try { localStorage.setItem(LINKS_KEY, JSON.stringify(list)); } catch (e) { /* storage blocked */ } }
+  function rememberLink(driveId, name) {
+    const list = savedLinks().filter((l) => l.driveId !== driveId);
+    list.push({ driveId, name, addedAt: Date.now() });
+    saveLinks(list);
+  }
+  function forgetLink(driveId) { saveLinks(savedLinks().filter((l) => l.driveId !== driveId)); }
   async function loadSourceList() {
     let list = null;
     try { const r = await fetch('/api/sources'); if (r.ok) list = await r.json(); } catch (e) { /* offline */ }
     const recs = (await store.all()) || [];
-    if (!list) { if (!recs.some((r) => isKept(r.id))) return; list = state.sources.filter((s) => !isKept(s.id)); }
-    const kept = recs.filter((r) => isKept(r.id)).sort((a, b) => (isLink(a.id) ? 0 : 1) - (isLink(b.id) ? 0 : 1) || a.name.localeCompare(b.name))
-      .map((r) => (isLink(r.id) ? { id: r.id, name: r.name, kind: 'link', driveId: r.driveId } : { id: r.id, name: r.name, kind: 'device', file: r.file }));
-    list = [...kept, ...list];
+    const links = savedLinks();
+    // Links saved before localStorage was used: copy them over once.
+    for (const r of recs) if (isLink(r.id) && !links.some((l) => l.driveId === r.driveId)) { rememberLink(r.driveId, r.name); links.push({ driveId: r.driveId, name: r.name }); }
+    if (!list) { if (!recs.some((r) => isKept(r.id)) && !links.length) return; list = state.sources.filter((s) => !isKept(s.id)); }
+    const linkSrc = links.map((l) => ({ id: 'link:' + l.driveId, driveId: l.driveId, name: (recs.find((r) => r.id === 'link:' + l.driveId) || l).name || 'Google sheet', kind: 'link' }));
+    const devSrc = recs.filter((r) => isDev(r.id)).sort((a, b) => a.name.localeCompare(b.name)).map((r) => ({ id: r.id, name: r.name, kind: 'device', file: r.file }));
+    list = [...linkSrc, ...devSrc, ...list];
     const old = new Map(state.sources.map((s) => [s.id, s]));
     state.sources = list.map((s) => ({ status: 'loading', error: '', ...(old.get(s.id) || {}), ...s }));
     const ids = new Set(list.map((s) => s.id));
@@ -511,6 +525,7 @@
       const rec = { id, driveId, name: got.name || 'Google sheet', addedAt: Date.now(), buf: got.buf };
       state.sources.unshift({ id, driveId, name: rec.name, kind: 'link', status: 'ok', error: '' });
       if (!addRecord(rec, { save: false })) { state.sources.shift(); toast('That sheet has no readable data.'); return false; }
+      rememberLink(driveId, rec.name);
       await store.put(rec);
       const file = state.files.find((f) => f.id === id);
       if (file) recordVersion(id, rec.buf, file.sheets);
@@ -528,6 +543,7 @@
       const what = src.kind === 'link' ? 'Only the link is removed from this browser. The Google Sheet itself is not touched.' : 'Only the copy kept in this browser is removed. Your original file is not touched.';
       if (!confirm(`Remove “${name}” from the dashboard?\n\n${what}`)) return;
       await store.del(src.id);
+      if (src.kind === 'link') forgetLink(src.driveId);
       delete progress[src.id]; saveProgress(progress);
       state.files = state.files.filter((f) => f.id !== src.id);
       if (state.sel && state.sel.fileId === src.id) state.sel = null;

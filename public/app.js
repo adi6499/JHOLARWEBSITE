@@ -31,6 +31,7 @@
     locked: 0,          // shared Google sheets waiting behind the website password
     unlocked: false,
     misconfigured: false,
+    backup: false,      // true on the PC app: silent backup to the Desktop
   };
   async function loadInfo() {
     try {
@@ -41,7 +42,42 @@
       state.locked = Number(j.locked) || 0;
       state.unlocked = !!j.unlocked;
       state.misconfigured = !!j.misconfigured;
+      state.backup = !!j.backup;
     } catch (e) { /* keep defaults */ }
+  }
+
+  // ---------- silent Desktop backup (PC app only) ----------
+  // Saves pasted links, progress history and view settings to "Sheets Insight Backup" on the
+  // Desktop (the server also mirrors the Excel files there). Restores them silently when this
+  // browser has lost them. Nothing is shown to the user.
+  function backupState() {
+    return { links: savedLinks(), progress, prefs: { theme: pref('sd-theme', null), rowsView: pref('sd-rows-view', null), nav: pref('sd-nav', null) } };
+  }
+  function sendBackup(closing) {
+    if (!state.backup) return;
+    try {
+      const body = JSON.stringify(backupState());
+      fetch('/api/backup', { method: 'POST', headers: { 'X-App': 'sheets-dashboard', 'Content-Type': 'application/json' }, body, keepalive: !!closing && body.length < 60000 }).catch(() => {});
+    } catch (e) { /* ignore */ }
+  }
+  let backupTimer;
+  function scheduleBackup() { clearTimeout(backupTimer); backupTimer = setTimeout(() => sendBackup(false), 2000); }
+  async function restoreFromBackup() {
+    if (!state.backup) return;
+    let hasLinks = false, hasProgress = false;
+    try { hasLinks = localStorage.getItem(LINKS_KEY) !== null; hasProgress = localStorage.getItem(PROGRESS_KEY) !== null; } catch (e) { return; }
+    if (hasLinks && hasProgress) return; // this browser still has everything
+    try {
+      const r = await fetch('/api/backup', { headers: { 'X-App': 'sheets-dashboard' } });
+      if (!r.ok) return;
+      const b = await r.json();
+      if (!hasLinks && Array.isArray(b.links)) saveLinks(b.links);
+      if (!hasProgress && b.progress && typeof b.progress === 'object') { progress = b.progress; saveProgress(progress); }
+      const p = b.prefs || {};
+      if (p.theme && pref('sd-theme', null) === null) { setPref('sd-theme', p.theme); document.documentElement.dataset.theme = p.theme; }
+      if (p.rowsView && pref('sd-rows-view', null) === null) { setPref('sd-rows-view', p.rowsView); state.rowsView = p.rowsView === 'table' ? 'table' : 'cards'; }
+      if (p.nav && pref('sd-nav', null) === null) setPref('sd-nav', p.nav);
+    } catch (e) { /* no backup yet */ }
   }
   async function unlock(password) {
     const btn = $('#unlockBtn');
@@ -422,6 +458,7 @@
     syncing = false;
     setRefreshBtn(false);
     state.lastSync = Date.now();
+    scheduleBackup();
     // Don't redraw while she is typing in a search box.
     const typing = document.activeElement && ['searchBox', 'gsearch'].includes(document.activeElement.id);
     if (typing) { renderNav(); updateStatus(); return; }
@@ -531,6 +568,7 @@
       if (file) recordVersion(id, rec.buf, file.sheets);
       render();
       toast(`Added “${rec.name}” — it refreshes every 5 minutes`);
+      scheduleBackup();
       return true;
     } catch (e) { toast(e.message || 'Could not load this sheet.', 9000); return false; }
     finally { btn.disabled = false; btn.textContent = 'Add link'; }
@@ -549,6 +587,7 @@
       if (state.sel && state.sel.fileId === src.id) state.sel = null;
       await syncAll();
       toast(`Removed “${name}”`);
+      scheduleBackup();
       return;
     }
     const msg = isLink
@@ -562,6 +601,7 @@
       if (state.sel && state.sel.fileId === src.id) state.sel = null;
       await syncAll();
       toast(`Removed “${name}”`);
+      scheduleBackup();
     } catch (e) { toast('Could not remove it.'); }
   }
 
@@ -1431,6 +1471,7 @@
       const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
       document.documentElement.dataset.theme = next;
       setPref('sd-theme', next);
+      scheduleBackup();
       paintTheme();
       render();
     });
@@ -1587,6 +1628,10 @@
     const t = pref('sd-theme', null); if (t) document.documentElement.dataset.theme = t;
     wire();
     await loadInfo();
+    await restoreFromBackup(); // silent: only fills in what this browser has lost
+    // Back up silently when the window is closed or hidden.
+    window.addEventListener('pagehide', () => sendBackup(true));
+    document.addEventListener('visibilitychange', () => { if (document.hidden) sendBackup(true); });
     await loadSourceList();
     render();
     // Show the last copy instantly (works offline), then get fresh data.

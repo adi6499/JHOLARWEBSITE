@@ -224,6 +224,7 @@ function handleUpload(req, res, url) {
       fs.writeFileSync(tmp, Buffer.concat(chunks));
       fs.renameSync(tmp, path.join(DATA_DIR, name)); // swap in only when fully written
       sendJson(res, 200, { ok: true, name });
+      backupFiles();
     } catch (e) {
       sendJson(res, 500, { error: 'Could not save the file. If it is open in Excel, close it and try again.' });
     }
@@ -243,6 +244,7 @@ function handleRemove(req, res, url) {
       fs.mkdirSync(bin, { recursive: true });
       const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
       fs.renameSync(path.join(DATA_DIR, hit.file), path.join(bin, `${stamp} ${hit.file}`));
+      backupFiles();
       return sendJson(res, 200, { ok: true });
     } catch (e) { return sendJson(res, 500, { error: 'Could not remove the file. If it is open in Excel, close it and try again.' }); }
   }
@@ -250,6 +252,7 @@ function handleRemove(req, res, url) {
   const list = loadSources();
   if (!list.some((s) => s.id === id)) return sendJson(res, 404, { error: 'Link not found.' });
   saveSources(list.filter((s) => s.id !== id));
+  backupFiles();
   sendJson(res, 200, { ok: true });
 }
 
@@ -269,6 +272,82 @@ function checkCanSave() {
   return canSave;
 }
 
+// ---------- automatic backup to the Desktop (PC app only) ----------
+// Folder "Sheets Insight Backup" on the Desktop holds: copies of the Excel files in data/,
+// sources.json, and browser.json (pasted links, progress history, view settings).
+// It is written silently on every change / when the app is closed, and restored silently
+// when the app starts with an empty data folder or the browser has lost its settings.
+const os = require('os');
+function desktopDir() {
+  if (process.env.BACKUP_DIR) return process.env.BACKUP_DIR;
+  const home = os.homedir();
+  const oneDrive = path.join(home, 'OneDrive', 'Desktop'); // Windows often moves the Desktop into OneDrive
+  if (fs.existsSync(oneDrive)) return oneDrive;
+  return path.join(home, 'Desktop');
+}
+const BACKUP_DIR = path.join(desktopDir(), 'Sheets Insight Backup');
+const BACKUP_DATA = path.join(BACKUP_DIR, 'data');
+let backupOk = null;
+function canBackup() {
+  if (backupOk !== null) return backupOk;
+  if (!checkCanSave() || process.env.SOURCES) return (backupOk = false); // hosted website: no Desktop
+  try { fs.mkdirSync(BACKUP_DATA, { recursive: true }); backupOk = true; } catch (e) { backupOk = false; }
+  return backupOk;
+}
+// Make the backup's data folder an exact copy of data/ (only copies files that changed).
+function backupFiles() {
+  if (!canBackup()) return;
+  try {
+    const live = localFiles().map((f) => f.file);
+    for (const f of live) {
+      const src = path.join(DATA_DIR, f), dst = path.join(BACKUP_DATA, f);
+      const a = fs.statSync(src);
+      const b = fs.existsSync(dst) ? fs.statSync(dst) : null;
+      if (!b || b.size !== a.size || b.mtimeMs < a.mtimeMs) fs.copyFileSync(src, dst);
+    }
+    for (const f of fs.readdirSync(BACKUP_DATA)) if (!live.includes(f)) fs.unlinkSync(path.join(BACKUP_DATA, f));
+    const sj = path.join(__dirname, 'sources.json');
+    if (fs.existsSync(sj)) fs.copyFileSync(sj, path.join(BACKUP_DIR, 'sources.json'));
+  } catch (e) { console.warn('backup of files failed'); }
+}
+// On start: bring files back from the Desktop backup if this copy of the app has none.
+function restoreFiles() {
+  if (!canBackup()) return;
+  try {
+    if (!localFiles().length && fs.existsSync(BACKUP_DATA)) {
+      const files = fs.readdirSync(BACKUP_DATA).filter((f) => /\.(xlsx|xlsm|xls|csv)$/i.test(f));
+      for (const f of files) fs.copyFileSync(path.join(BACKUP_DATA, f), path.join(DATA_DIR, f));
+      if (files.length) console.log(`Restored ${files.length} file(s) from the Desktop backup.`);
+    }
+    const sj = path.join(__dirname, 'sources.json'), bj = path.join(BACKUP_DIR, 'sources.json');
+    if (!fs.existsSync(sj) && fs.existsSync(bj)) fs.copyFileSync(bj, sj);
+  } catch (e) { console.warn('restore from backup failed'); }
+}
+function handleBackupSave(req, res) {
+  if (!fromApp(req)) return sendJson(res, 403, { error: 'Not allowed.' });
+  if (!canBackup()) return sendJson(res, 200, { ok: false });
+  let body = '';
+  req.on('data', (c) => { body += c; if (body.length > 5 * 1024 * 1024) req.destroy(); });
+  req.on('end', () => {
+    try {
+      const data = JSON.parse(body);
+      const out = JSON.stringify({ savedAt: new Date().toISOString(), links: data.links || [], progress: data.progress || {}, prefs: data.prefs || {} }, null, 2);
+      const file = path.join(BACKUP_DIR, 'browser.json');
+      if (fs.existsSync(file)) fs.copyFileSync(file, path.join(BACKUP_DIR, 'browser.previous.json'));
+      fs.writeFileSync(file + '.tmp', out);
+      fs.renameSync(file + '.tmp', file);
+      backupFiles();
+      sendJson(res, 200, { ok: true });
+    } catch (e) { sendJson(res, 400, { ok: false }); }
+  });
+}
+function handleBackupGet(req, res) {
+  if (!fromApp(req)) return sendJson(res, 403, { error: 'Not allowed.' });
+  if (!canBackup()) return sendJson(res, 200, {});
+  try { sendJson(res, 200, JSON.parse(fs.readFileSync(path.join(BACKUP_DIR, 'browser.json'), 'utf8'))); }
+  catch (e) { sendJson(res, 200, {}); }
+}
+
 function saveSources(list) {
   fs.writeFileSync(path.join(__dirname, 'sources.json'), JSON.stringify(list, null, 2) + '\n');
 }
@@ -278,15 +357,18 @@ http.createServer((req, res) => {
   if (req.method === 'POST' && url.pathname === '/api/upload') return handleUpload(req, res, url);
   if (req.method === 'POST' && url.pathname === '/api/remove') return handleRemove(req, res, url);
   if (req.method === 'POST' && url.pathname === '/api/login') return handleLogin(req, res);
+  if (req.method === 'POST' && url.pathname === '/api/backup') return handleBackupSave(req, res);
   if (req.method === 'POST' && url.pathname === '/api/logout') return handleLogout(req, res);
   if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405); return res.end(); }
   if (url.pathname === '/api/drive') return handleDrive(req, res, url);
   if (url.pathname === '/api/link') return handleLink(req, res, url);
+  if (url.pathname === '/api/backup') return handleBackupGet(req, res);
   if (url.pathname === '/api/local') return handleLocal(req, res, url);
   if (url.pathname === '/api/sources') return sendJson(res, 200, allSources(req));
   if (url.pathname === '/api/info') {
     return sendJson(res, 200, {
       canSave: checkCanSave(),
+      backup: canBackup(),
       locked: lockedCount(req),                    // shared sheets waiting for the password
       unlocked: !!APP_PASSWORD && hasAuthCookie(req),
       misconfigured: !!process.env.SOURCES && !APP_PASSWORD, // SOURCES set but no password: not served
@@ -307,5 +389,7 @@ http.createServer((req, res) => {
     res.end(data);
   });
 }).listen(PORT, '127.0.0.1', () => {
+  restoreFiles();
+  backupFiles();
   console.log(`Sheets Dashboard running at http://localhost:${PORT}`);
 });

@@ -79,6 +79,16 @@
             </div>
             <div class="drop-hint">From Google Sheets: <b>File → Download → Microsoft Excel (.xlsx)</b></div>
           </div>
+          <form class="card link-card" id="linkForm">
+            <span class="card-icon" id="linkIcon"></span>
+            <div class="grow">
+              <div class="fname">Or paste a Google Sheets link</div>
+              <div class="fmeta">It loads automatically and refreshes every 5 minutes. The sheet must be shared “Anyone with the link → Viewer”.</div>
+            </div>
+            <label class="sr-only" for="linkInput">Google Sheets link</label>
+            <input id="linkInput" class="input" type="url" placeholder="https://docs.google.com/spreadsheets/d/…" autocomplete="off">
+            <button class="btn primary" id="linkBtn" type="submit">Add link</button>
+          </form>
           <input type="file" id="replaceInput" accept=".xlsx,.xls,.xlsm,.csv" hidden>
           <div id="startList"></div>
           <div class="start-actions">

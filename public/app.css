@@ -277,6 +277,11 @@ select, .input {
 .file-row .fmeta { font-size: 13px; color: var(--muted); }
 .file-row.err .fmeta { color: var(--red); }
 .file-row .acts { display: flex; gap: 6px; flex-wrap: wrap; }
+.link-card { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 14px; border-radius: var(--r); padding: 14px 16px; }
+.link-card .grow { flex: 1; min-width: 220px; }
+.link-card .fname { font-weight: 600; }
+.link-card .fmeta { font-size: 13px; color: var(--muted); }
+.link-card .input { flex: 1 1 260px; max-width: none; }
 .lock-card { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 18px; border-left: 4px solid var(--lavender); border-radius: var(--r); padding: 14px 16px; }
 .lock-card .grow { flex: 1; min-width: 220px; }
 .lock-card .fname { font-weight: 600; }

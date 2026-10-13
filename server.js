@@ -161,6 +161,27 @@ async function handleDrive(req, res, url) {
   }
 }
 
+// A Google Sheets link pasted by the user in the page. The link is kept in the user's browser;
+// the server only downloads a read-only copy and passes it through — nothing is stored here.
+// Requires the app's header so other websites cannot use this as a download proxy.
+const MAX_LINK = 50 * 1024 * 1024;
+async function handleLink(req, res, url) {
+  if (!fromApp(req)) return sendJson(res, 403, { error: 'Not allowed.' });
+  const id = url.searchParams.get('id') || '';
+  if (!/^[A-Za-z0-9_-]{20,100}$/.test(id)) return sendJson(res, 400, { error: 'That does not look like a Google Sheets link.' });
+  try {
+    const got = await fetchDrive(id);
+    if (!got) {
+      return sendJson(res, 403, { error: 'This sheet is private. In Google Sheets: Share → General access → “Anyone with the link” → Viewer, then try again.' });
+    }
+    if (got.buf.length > MAX_LINK) return sendJson(res, 413, { error: 'That sheet is too big (max 50 MB).' });
+    res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Cache-Control': 'no-store', 'X-File-Name': encodeURIComponent(got.name) });
+    res.end(got.buf);
+  } catch (e) {
+    sendJson(res, 502, { error: 'Could not reach Google Drive. Check the internet connection.' });
+  }
+}
+
 // Only the app's own page may change files (blocks other websites from posting to localhost).
 // The custom X-App header is the real protection: a browser will not let another website send it
 // (it needs CORS permission this server never gives). Origin, when present, must be this machine.
@@ -260,6 +281,7 @@ http.createServer((req, res) => {
   if (req.method === 'POST' && url.pathname === '/api/logout') return handleLogout(req, res);
   if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405); return res.end(); }
   if (url.pathname === '/api/drive') return handleDrive(req, res, url);
+  if (url.pathname === '/api/link') return handleLink(req, res, url);
   if (url.pathname === '/api/local') return handleLocal(req, res, url);
   if (url.pathname === '/api/sources') return sendJson(res, 200, allSources(req));
   if (url.pathname === '/api/info') {

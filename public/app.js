@@ -325,15 +325,18 @@
   // ---------- fetching (read-only) ----------
   // Files uploaded on a site that cannot store files (e.g. the Vercel website) are kept
   // only in this browser (IndexedDB) and never sent to the server. Their ids start with "dev:".
+  // Google Sheets links pasted by the user are kept in this browser too (ids start with "link:").
   const isDev = (id) => String(id).startsWith('dev:');
+  const isLink = (id) => String(id).startsWith('link:');
+  const isKept = (id) => isDev(id) || isLink(id);
   async function loadSourceList() {
     let list = null;
     try { const r = await fetch('/api/sources'); if (r.ok) list = await r.json(); } catch (e) { /* offline */ }
     const recs = (await store.all()) || [];
-    if (!list) { if (!recs.some((r) => isDev(r.id))) return; list = state.sources.filter((s) => !isDev(s.id)); }
-    const devs = recs.filter((r) => isDev(r.id)).sort((a, b) => a.name.localeCompare(b.name))
-      .map((r) => ({ id: r.id, name: r.name, kind: 'device', file: r.file }));
-    list = [...devs, ...list];
+    if (!list) { if (!recs.some((r) => isKept(r.id))) return; list = state.sources.filter((s) => !isKept(s.id)); }
+    const kept = recs.filter((r) => isKept(r.id)).sort((a, b) => (isLink(a.id) ? 0 : 1) - (isLink(b.id) ? 0 : 1) || a.name.localeCompare(b.name))
+      .map((r) => (isLink(r.id) ? { id: r.id, name: r.name, kind: 'link', driveId: r.driveId } : { id: r.id, name: r.name, kind: 'device', file: r.file }));
+    list = [...kept, ...list];
     const old = new Map(state.sources.map((s) => [s.id, s]));
     state.sources = list.map((s) => ({ status: 'loading', error: '', ...(old.get(s.id) || {}), ...s }));
     const ids = new Set(list.map((s) => s.id));
@@ -344,7 +347,29 @@
     if (gone) saveProgress(progress);
   }
 
+  // Download the latest read-only copy of a pasted Google Sheets link.
+  async function fetchLink(driveId) {
+    const r = await fetch('/api/link?id=' + encodeURIComponent(driveId), { headers: { 'X-App': 'sheets-dashboard' } });
+    if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || 'Could not load this sheet.'); }
+    const name = decodeURIComponent(r.headers.get('X-File-Name') || '').replace(/\.(xlsx|xls|xlsm)$/i, '');
+    return { buf: await r.arrayBuffer(), name };
+  }
   async function fetchSource(src) {
+    if (src.kind === 'link') {
+      try {
+        const got = await fetchLink(src.driveId);
+        const rec = { id: src.id, driveId: src.driveId, name: got.name || src.name, addedAt: Date.now(), buf: got.buf };
+        if (addRecord(rec)) { src.name = rec.name; src.status = 'ok'; src.error = ''; }
+        else { src.status = 'error'; src.error = 'This sheet has no readable data.'; }
+      } catch (e) {
+        // Keep showing the last copy if there is one.
+        const have = state.files.some((f) => f.id === src.id) || (((await store.all()) || []).find((r) => r.id === src.id && addRecord(r, { save: false })));
+        src.status = have ? 'ok' : 'error';
+        src.error = have ? '' : e.message;
+        if (have && e.message) src.warn = e.message;
+      }
+      return;
+    }
     if (src.kind === 'device') { // already in this browser — just make sure it is loaded
       if (state.files.some((f) => f.id === src.id)) { src.status = 'ok'; return; }
       const rec = ((await store.all()) || []).find((r) => r.id === src.id);
@@ -472,11 +497,36 @@
     if (skipped > 0 && !failed.length && all.length > 1) setTimeout(() => toast(`${plural(skipped, 'other file')} in that folder were not Excel files and were skipped`), 3600);
   }
 
+  // Paste a Google Sheets link: check it opens, then keep the link (and last copy) in this browser.
+  async function addLink(text) {
+    const m = String(text).match(/\/d\/([A-Za-z0-9_-]{20,100})/) || String(text).match(/[?&]id=([A-Za-z0-9_-]{20,100})/);
+    if (!m) { toast('Paste the link from the Google Sheets address bar or the Share button.', 6000); return false; }
+    const driveId = m[1];
+    const id = 'link:' + driveId;
+    if (state.sources.some((s) => s.id === id || s.id === driveId)) { toast('That sheet is already in the dashboard.'); return true; }
+    const btn = $('#linkBtn');
+    btn.disabled = true; btn.textContent = 'Checking…';
+    try {
+      const got = await fetchLink(driveId);
+      const rec = { id, driveId, name: got.name || 'Google sheet', addedAt: Date.now(), buf: got.buf };
+      state.sources.unshift({ id, driveId, name: rec.name, kind: 'link', status: 'ok', error: '' });
+      if (!addRecord(rec, { save: false })) { state.sources.shift(); toast('That sheet has no readable data.'); return false; }
+      await store.put(rec);
+      const file = state.files.find((f) => f.id === id);
+      if (file) recordVersion(id, rec.buf, file.sheets);
+      render();
+      toast(`Added “${rec.name}” — it refreshes every 5 minutes`);
+      return true;
+    } catch (e) { toast(e.message || 'Could not load this sheet.', 9000); return false; }
+    finally { btn.disabled = false; btn.textContent = 'Add link'; }
+  }
+
   async function removeSource(src) {
     const isLink = src.kind === 'drive';
     const name = (state.files.find((f) => f.id === src.id) || src).name;
-    if (src.kind === 'device') {
-      if (!confirm(`Remove “${name}” from this browser?\n\nOnly the copy kept in this browser is removed. Your original file is not touched.`)) return;
+    if (src.kind === 'device' || src.kind === 'link') {
+      const what = src.kind === 'link' ? 'Only the link is removed from this browser. The Google Sheet itself is not touched.' : 'Only the copy kept in this browser is removed. Your original file is not touched.';
+      if (!confirm(`Remove “${name}” from the dashboard?\n\n${what}`)) return;
       await store.del(src.id);
       delete progress[src.id]; saveProgress(progress);
       state.files = state.files.filter((f) => f.id !== src.id);
@@ -505,7 +555,9 @@
       const isLocal = src.kind === 'local' || src.kind === 'device';
       const ch = f ? changes(f.id) : null;
       const p = f && progress[f.id] && progress[f.id].cur;
-      const where = src.kind === 'device' ? ' · kept in this browser only' : src.kind === 'drive' ? ' · from Google Sheets' : '';
+      const where = src.kind === 'device' ? ' · kept in this browser only'
+        : src.kind === 'link' ? ` · Google Sheets link, refreshes every 5 min${src.warn ? ' · showing last copy (' + src.warn + ')' : ''}`
+          : src.kind === 'drive' ? ' · from Google Sheets' : '';
       const meta = f ? `${plural(f.sheets.length, 'tab')} · updated ${ago(f.addedAt)}${p ? ` · health ${fileHealth(p.tabs)}` : ''}${ch && ch.fixed ? ` · ${plural(ch.fixed, 'problem')} fixed since last upload` : ''}${where}`
         : src.status === 'error' ? src.error : 'Loading…';
       return `<div class="card file-row ${!f && src.status === 'error' ? 'err' : ''}">
@@ -1373,6 +1425,13 @@
     $('#folderInput').addEventListener('change', (e) => { uploadFiles(e.target.files); e.target.value = ''; });
     let replaceTarget = null;
     $('#replaceInput').addEventListener('change', (e) => { if (e.target.files.length) uploadFiles(e.target.files, replaceTarget); e.target.value = ''; });
+    $('#linkIcon').innerHTML = I('cloud');
+    $('#linkForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const v = $('#linkInput').value.trim();
+      if (!v) { toast('Paste a Google Sheets link first.'); return; }
+      if (await addLink(v)) $('#linkInput').value = '';
+    });
     $('#startList').addEventListener('submit', (e) => {
       if (e.target.id !== 'unlockForm') return;
       e.preventDefault();

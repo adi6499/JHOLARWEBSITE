@@ -100,9 +100,15 @@ async function handleDrive(req, res, url) {
 }
 
 // Only the app's own page may change files (blocks other websites from posting to localhost).
+// The custom X-App header is the real protection: a browser will not let another website send it
+// (it needs CORS permission this server never gives). Origin, when present, must be this machine.
 function fromApp(req) {
   const origin = req.headers.origin || '';
-  return /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin) && req.headers['x-app'] === 'sheets-dashboard';
+  const okOrigin = !origin || origin === 'null' || /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(origin)
+    || origin.replace(/^https?:\/\//i, '') === req.headers.host;
+  const ok = req.headers['x-app'] === 'sheets-dashboard' && okOrigin;
+  if (!ok) console.warn(`Refused ${req.method} ${req.url.split('?')[0]} — origin: ${origin || '(none)'}, app header: ${req.headers['x-app'] ? 'yes' : 'no'}`);
+  return ok;
 }
 const cleanFileName = (s) => path.basename(String(s || '')).replace(/[<>:"/\\|?*\x00-\x1f]/g, '').trim();
 
@@ -111,7 +117,7 @@ const cleanFileName = (s) => path.basename(String(s || '')).replace(/[<>:"/\\|?*
 // ?replace=<file in data/> forces which file it replaces (the "Replace" button).
 const MAX_UPLOAD = 50 * 1024 * 1024;
 function handleUpload(req, res, url) {
-  if (!fromApp(req)) return sendJson(res, 403, { error: 'Not allowed.' });
+  if (!fromApp(req)) return sendJson(res, 403, { error: 'Upload blocked: please open the app from the “Start Dashboard” shortcut (http://localhost:5180) and try again.' });
   let name = cleanFileName(url.searchParams.get('name'));
   if (!/\.(xlsx|xlsm|xls|csv)$/i.test(name) || name.startsWith('~$')) return sendJson(res, 400, { error: 'Please choose an Excel file (.xlsx, .xls or .csv).' });
   name = name.replace(/\s*\(\d+\)(?=\.[a-z]+$)/i, ''); // drop the browser's " (1)"
